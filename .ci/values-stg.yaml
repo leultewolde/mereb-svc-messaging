@@ -1,0 +1,61 @@
+nameOverride: svc-messaging
+
+replicaCount: 2
+
+imagePullSecrets:
+  - regcred
+
+image:
+  repository: registry.leultewolde.com/mereb/svc-messaging
+  env:
+    - name: NODE_ENV
+      value: production
+    - name: SERVICE_NAME
+      value: svc-messaging
+  envFrom:
+    - configMapRef:
+        name: svc-messaging-stg-config
+    - secretRef:
+        name: svc-messaging-stg-secrets
+        optional: true
+
+service:
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      containerPort: 4004
+
+ingress:
+  enabled: true
+  className: kong
+  annotations:
+    kubernetes.io/ingress.class: kong
+    cert-manager.io/cluster-issuer: letsencrypt-http
+    konghq.com/strip-path: "true"
+  hosts:
+    - host: api-stg.mereb.app
+      paths:
+        - path: /messages
+          pathType: Prefix
+          servicePort: http
+  tls:
+    - secretName: messages-stg-tls
+      hosts:
+        - api-stg.mereb.app
+
+configMap:
+  enabled: true
+  nameOverride: svc-messaging-stg-config
+  data:
+    PORT: "4004"
+    OIDC_ISSUER: https://auth.mereb.app/realms/mereb
+    OIDC_AUDIENCE: account
+
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+
+autoscaling:
+  enabled: false

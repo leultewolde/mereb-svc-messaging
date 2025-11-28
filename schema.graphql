@@ -1,0 +1,60 @@
+scalar FieldSet
+
+directive @external on FIELD_DEFINITION
+directive @provides(fields: FieldSet) on FIELD_DEFINITION
+directive @requires(fields: FieldSet) on FIELD_DEFINITION
+directive @key(fields: FieldSet) repeatable on OBJECT | INTERFACE
+directive @extends on OBJECT | INTERFACE
+
+scalar _Any
+
+type _Service {
+  sdl: String
+}
+
+type Conversation @key(fields: "id") {
+  id: ID!
+  title: String!
+  participantIds: [ID!]!
+  lastMessage: Message
+  unreadCount: Int!
+  updatedAt: String!
+}
+
+type Message {
+  id: ID!
+  conversationId: ID!
+  senderId: ID!
+  senderName: String
+  body: String!
+  sentAt: String!
+}
+
+type MessageEdge {
+  node: Message!
+  cursor: String!
+}
+
+type MessageConnection {
+  edges: [MessageEdge!]!
+  pageInfo: MessagePageInfo!
+}
+
+type MessagePageInfo {
+  endCursor: String
+  hasNextPage: Boolean!
+}
+
+union _Entity = Conversation
+
+type Query {
+  conversations: [Conversation!]!
+  conversation(id: ID!): Conversation
+  messages(conversationId: ID!, after: String, limit: Int = 20): MessageConnection!
+  _entities(representations: [_Any!]!): [_Entity]!
+  _service: _Service!
+}
+
+type Mutation {
+  sendMessage(conversationId: ID!, body: String!): Message!
+}

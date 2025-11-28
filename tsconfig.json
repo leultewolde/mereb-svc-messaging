@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "composite": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "target": "ES2022",
+    "baseUrl": ".",
+    "paths": {
+      "@services/svc-messaging/*": ["./src/*"]
+    }
+  },
+  "include": ["src", "schema.graphql"]
+}

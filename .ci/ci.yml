@@ -1,0 +1,110 @@
+version: 1
+preset: node
+
+build:
+  pnpm:
+    nodeVersion: 20.19.2
+    packageName: "@services/svc-messaging"
+    packageDir: .
+    steps:
+      - type: lint
+        name: Lint service sources
+      - type: build
+        name: Build service package
+
+image:
+  repository: registry.leultewolde.com/mereb/svc-messaging
+  context: .
+  dockerfile: Dockerfile
+  tagStrategy: branch-sha
+  push:
+    enabled: true
+    when: '!pr'
+    credentialsId: docker-registry-local
+    registry: http://10.0.0.222:30400
+
+deploy:
+  order:
+    - dev
+    - stg
+    - prd
+
+  dev:
+    release: svc-messaging-dev
+    namespace: apps-dev
+    chart: app-chart
+    repo: https://charts.leultewolde.com
+    repoCredentialId: helm-chart-creds
+    valuesFiles:
+      - .ci/values-dev.yaml
+    when: branch=main & !pr
+    autoPromote: true
+    smoke:
+      url: https://api-dev.mereb.app/messages/healthz
+      retries: 3
+      delay: 10
+      timeout: 60s
+
+  stg:
+    release: svc-messaging-stg
+    namespace: apps-stg
+    chart: app-chart
+    repo: https://charts.leultewolde.com
+    repoCredentialId: helm-chart-creds
+    valuesFiles:
+      - .ci/values-stg.yaml
+    when: branch=main & !pr
+    autoPromote: true
+    approval:
+      before: true
+      message: "Promote svc-messaging deployment to staging?"
+      submitter: release-managers
+    smoke:
+      url: https://api-stg.mereb.app/messages/healthz
+      retries: 3
+      delay: 10
+      timeout: 60s
+
+  prd:
+    release: svc-messaging
+    namespace: apps-prd
+    chart: app-chart
+    repo: https://charts.leultewolde.com
+    repoCredentialId: helm-chart-creds
+    valuesFiles:
+      - .ci/values-prd.yaml
+    when: tag=^v[0-9].*
+    autoPromote: false
+    approval:
+      message: "Deploy svc-messaging to production?"
+      submitter: release-managers
+    smoke:
+      url: https://api.mereb.app/messages/healthz
+      retries: 3
+      delay: 10
+      timeout: 60s
+
+signing:
+  enabled: false
+
+release:
+  autoTag:
+    enabled: true
+    when: branch=main & !pr
+    prefix: v
+    bump: patch
+    remote: origin
+    gitUser: Mereb CI
+    gitEmail: ci@mereb.dev
+    credentialId: github-credentials
+    clean: false
+    allowDirty: true
+    skipIfTagged: true
+    afterEnvironment: stg
+  github:
+    enabled: true
+    when: tag=^v[0-9].*
+    repo: leultewolde/mereb-svc-messaging
+    stageName: GitHub Release
+    credentialId: github-credentials
+    generateReleaseNotes: true
