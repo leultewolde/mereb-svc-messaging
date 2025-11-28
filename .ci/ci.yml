@@ -37,6 +37,23 @@ deploy:
     repoCredentialId: helm-chart-creds
     valuesFiles:
       - .ci/values-dev.yaml
+      - .ci/.rendered/values-dev.secret.yaml
+    valuesTemplates:
+      - template: .ci/templates/values-secret.yaml.tpl
+        output: .ci/.rendered/values-dev.secret.yaml
+        vars:
+          SECRET_NAME: svc-messaging-dev-secrets
+          DATABASE_URL:
+            vaultPath: kv/data/apps/dev
+            vaultField: DATABASE_URL
+    vault:
+      url: https://vault.leultewolde.com
+      tokenEnv: VAULT_TOKEN
+      engine: kv2
+    credentials:
+      - type: vaultToken
+        id: vault-credentials
+        env: VAULT_TOKEN
     when: branch=main & !pr
     autoPromote: true
     smoke:
@@ -53,6 +70,23 @@ deploy:
     repoCredentialId: helm-chart-creds
     valuesFiles:
       - .ci/values-stg.yaml
+      - .ci/.rendered/values-stg.secret.yaml
+    valuesTemplates:
+      - template: .ci/templates/values-secret.yaml.tpl
+        output: .ci/.rendered/values-stg.secret.yaml
+        vars:
+          SECRET_NAME: svc-messaging-stg-secrets
+          DATABASE_URL:
+            vaultPath: kv/data/apps/stg
+            vaultField: DATABASE_URL
+    vault:
+      url: https://vault.leultewolde.com
+      tokenEnv: VAULT_TOKEN
+      engine: kv2
+    credentials:
+      - type: vaultToken
+        id: vault-credentials
+        env: VAULT_TOKEN
     when: branch=main & !pr
     autoPromote: true
     approval:
@@ -73,6 +107,23 @@ deploy:
     repoCredentialId: helm-chart-creds
     valuesFiles:
       - .ci/values-prd.yaml
+      - .ci/.rendered/values-prd.secret.yaml
+    valuesTemplates:
+      - template: .ci/templates/values-secret.yaml.tpl
+        output: .ci/.rendered/values-prd.secret.yaml
+        vars:
+          SECRET_NAME: svc-messaging-secrets
+          DATABASE_URL:
+            vaultPath: kv/data/apps/prd
+            vaultField: DATABASE_URL
+    vault:
+      url: https://vault.leultewolde.com
+      tokenEnv: VAULT_TOKEN
+      engine: kv2
+    credentials:
+      - type: vaultToken
+        id: vault-credentials
+        env: VAULT_TOKEN
     when: tag=^v[0-9].*
     autoPromote: false
     approval:

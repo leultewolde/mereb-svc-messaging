@@ -2,6 +2,7 @@
 data/projects.local.json
 node_modules/
 dist/
+generated/
 .mf
 .__mf__temp/
 .turbo/

@@ -3,7 +3,7 @@ import helmet from '@fastify/helmet'
 import cors from '@fastify/cors'
 import sensible from '@fastify/sensible'
 import underPressure from '@fastify/under-pressure'
-import mercurius from 'mercurius'
+import mercurius, { type MercuriusOptions } from 'mercurius'
 import { makeExecutableSchema } from '@graphql-tools/schema'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
@@ -11,6 +11,7 @@ import { fileURLToPath } from 'node:url'
 import { createLogger, loadEnv, parseAuthHeader, verifyJwt } from '@mereb/shared-packages'
 import type { GraphQLContext } from './context.js'
 import { resolvers } from './resolvers.js'
+import { ensureSeedData } from './store.js'
 
 loadEnv()
 
@@ -55,15 +56,18 @@ export async function buildServer(): Promise<FastifyInstance> {
     resolvers
   })
 
-  await app.register(mercurius, {
+  const mercuriusOptions: MercuriusOptions & { federationMetadata?: boolean } = {
     schema,
     graphiql: process.env.NODE_ENV !== 'production',
     federationMetadata: true,
     context: (request): GraphQLContext => ({ userId: request.userId })
-  })
+  }
+
+  await app.register(mercurius, mercuriusOptions)
+  await ensureSeedData()
 
   app.addHook('onRequest', (request, _, done) => {
-    ;(request.log as unknown as { setBindings?: (bindings: Record<string, unknown>) => void }).setBindings?.({
+    (request.log as unknown as { setBindings?: (bindings: Record<string, unknown>) => void }).setBindings?.({
       userId: request.userId
     })
     done()

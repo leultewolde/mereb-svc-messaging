@@ -6,18 +6,23 @@
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
+    "prebuild": "pnpm prisma:generate",
     "dev": "tsx src/index.ts",
     "build": "tsc -b",
     "start": "node dist/index.js",
-    "lint": "eslint \"src/**/*.{ts,tsx}\""
+    "lint": "eslint \"src/**/*.{ts,tsx}\"",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate deploy"
   },
   "dependencies": {
-    "@graphql-tools/schema": "^10.0.12",
-    "@mereb/shared-packages": "^0.0.11",
     "@fastify/cors": "^9.0.1",
     "@fastify/helmet": "^11.1.1",
     "@fastify/sensible": "^5.6.0",
     "@fastify/under-pressure": "^8.5.2",
+    "@graphql-tools/schema": "^10.0.12",
+    "@graphql-tools/utils": "^10.9.1",
+    "@mereb/shared-packages": "^0.0.11",
+    "@prisma/client": "^5.13.0",
     "fastify": "^4.27.2",
     "graphql": "^16.11.0",
     "mercurius": "^14.0.0"
@@ -26,6 +31,7 @@
     "@types/node": "^20.12.7",
     "@typescript-eslint/eslint-plugin": "^8.13.0",
     "@typescript-eslint/parser": "^8.13.0",
+    "prisma": "^5.13.0",
     "eslint": "^8.57.0",
     "tsx": "^4.7.1",
     "typescript": "^5.4.5"
