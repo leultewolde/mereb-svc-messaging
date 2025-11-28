@@ -64,7 +64,13 @@ export async function buildServer(): Promise<FastifyInstance> {
   }
 
   await app.register(mercurius, mercuriusOptions)
-  await ensureSeedData()
+
+  try {
+    await ensureSeedData()
+  } catch (error) {
+    app.log.error({ err: error }, 'Failed to seed messaging data. Ensure database migrations have been applied.')
+    throw error
+  }
 
   app.addHook('onRequest', (request, _, done) => {
     (request.log as unknown as { setBindings?: (bindings: Record<string, unknown>) => void }).setBindings?.({
