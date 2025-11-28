@@ -148,23 +148,59 @@ export async function listMessages(conversationId: string, after?: string, limit
   }
 }
 
-export async function addMessage(conversationId: string, body: string, ctx: GraphQLContext) {
-  const conversation = await prisma.conversation.findUnique({ where: { id: conversationId } })
+export async function addMessage(
+  conversationId: string | undefined,
+  body: string,
+  ctx: GraphQLContext,
+  toUserId?: string
+) {
+  if (!ctx.userId) {
+    throw new Error('Authentication required to send messages')
+  }
+
+  let targetConversationId = conversationId
+
+  if (!targetConversationId) {
+    if (!toUserId) throw new Error('toUserId is required when conversationId is not provided')
+
+    const existing = await prisma.conversation.findFirst({
+      where: {
+        participantIds: {
+          hasEvery: [ctx.userId, toUserId]
+        }
+      }
+    })
+
+    if (existing) {
+      targetConversationId = existing.id
+    } else {
+      const created = await prisma.conversation.create({
+        data: {
+          title: 'Direct message',
+          participantIds: [ctx.userId, toUserId],
+          unreadCount: 0
+        }
+      })
+      targetConversationId = created.id
+    }
+  }
+
+  const conversation = await prisma.conversation.findUnique({ where: { id: targetConversationId } })
   if (!conversation) {
     throw new Error('Conversation not found')
   }
 
   const message = await prisma.message.create({
     data: {
-      conversationId,
-      senderId: ctx.userId ?? 'anonymous',
-      senderName: ctx.userId ? 'You' : 'Shell User',
+      conversationId: targetConversationId,
+      senderId: ctx.userId,
+      senderName: 'You',
       body
     }
   })
 
   await prisma.conversation.update({
-    where: { id: conversationId },
+    where: { id: targetConversationId },
     data: {
       updatedAt: new Date(),
       unreadCount: Math.max(0, conversation.unreadCount - 1)
