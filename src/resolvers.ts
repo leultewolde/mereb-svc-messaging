@@ -1,7 +1,7 @@
 import type { IResolvers } from '@graphql-tools/utils'
 import type { GraphQLContext } from './context.js'
 import { prisma } from './prisma.js'
-import { listConversations, findConversation, listMessages, addMessage } from './store.js'
+import { findConversation, listMessages, addMessage } from './store.js'
 
 export const resolvers: IResolvers<unknown, GraphQLContext> = {
   Query: {
