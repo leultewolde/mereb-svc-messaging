@@ -26,4 +26,35 @@ export default compat.config({
   plugins: ['@typescript-eslint'],
   extends: ['eslint:recommended', 'plugin:@typescript-eslint/recommended'],
   ignorePatterns: ['dist', 'node_modules']
+}, {
+  files: ['src/domain/**/*.ts'],
+  rules: {
+    'no-restricted-imports': ['error', {
+      paths: [
+        { name: 'fastify', message: 'Domain layer cannot import transport frameworks.' },
+        { name: 'mercurius', message: 'Domain layer cannot import transport frameworks.' },
+        { name: 'kafkajs', message: 'Domain layer cannot import Kafka clients.' },
+        { name: '@mereb/shared-packages', message: 'Domain layer cannot import shared infrastructure clients.' }
+      ],
+      patterns: [
+        { group: ['**/adapters/**'], message: 'Domain layer cannot import adapters.' },
+        { group: ['**/prisma.js', '**/prisma'], message: 'Domain layer cannot import Prisma clients.' }
+      ]
+    }]
+  }
+}, {
+  files: ['src/application/**/*.ts'],
+  rules: {
+    'no-restricted-imports': ['error', {
+      paths: [
+        { name: 'fastify', message: 'Application layer cannot import transport frameworks.' },
+        { name: 'mercurius', message: 'Application layer cannot import transport frameworks.' },
+        { name: 'kafkajs', message: 'Application layer cannot import Kafka clients.' }
+      ],
+      patterns: [
+        { group: ['**/adapters/**'], message: 'Application layer cannot import adapters.' },
+        { group: ['**/prisma.js', '**/prisma'], message: 'Application layer cannot import Prisma clients.' }
+      ]
+    }]
+  }
 });
