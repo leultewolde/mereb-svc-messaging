@@ -1,4 +1,4 @@
-import Fastify, { type FastifyBaseLogger, type FastifyInstance } from 'fastify'
+import Fastify, { type FastifyInstance } from 'fastify'
 import helmet from '@fastify/helmet'
 import cors from '@fastify/cors'
 import sensible from '@fastify/sensible'
@@ -8,19 +8,20 @@ import { makeExecutableSchema } from '@graphql-tools/schema'
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { createLogger, loadEnv, parseAuthHeader, verifyJwt } from '@mereb/shared-packages'
+import { createFastifyLoggerOptions, loadEnv, parseAuthHeader, verifyJwt } from '@mereb/shared-packages'
 import type { GraphQLContext } from './context.js'
 import { resolvers } from './resolvers.js'
 import { ensureSeedData } from './store.js'
 
 loadEnv()
 
-const logger = createLogger('svc-messaging')
 const typeDefsPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'schema.graphql')
 const typeDefs = readFileSync(typeDefsPath, 'utf8')
 
 export async function buildServer(): Promise<FastifyInstance> {
-  const app = Fastify({ logger: logger as FastifyBaseLogger })
+  const app = Fastify({
+    logger: createFastifyLoggerOptions('svc-messaging')
+  })
 
   await app.register(helmet)
   await app.register(cors, { origin: true, credentials: true })
@@ -51,7 +52,7 @@ export async function buildServer(): Promise<FastifyInstance> {
     }
   })
 
-  const schema = makeExecutableSchema({
+  const schema = makeExecutableSchema<GraphQLContext>({
     typeDefs,
     resolvers
   })

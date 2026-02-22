@@ -1,7 +1,4 @@
-FROM node:20-alpine AS base
-WORKDIR /app
-
-RUN apk add --no-cache openssl
+FROM registry.leultewolde.com/mereb/mereb-node-base:v0.0.4 AS base
 
 COPY package.json pnpm-lock.yaml ./
 COPY prisma prisma
@@ -12,8 +9,7 @@ COPY tsconfig.json tsconfig.json
 COPY tsconfig.eslint.json tsconfig.eslint.json
 COPY docker-entrypoint.sh docker-entrypoint.sh
 
-RUN corepack enable && \
-    pnpm install --frozen-lockfile && \
+RUN pnpm install --frozen-lockfile && \
     pnpm run prisma:generate && \
     pnpm run build
 

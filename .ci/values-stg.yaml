@@ -12,6 +12,12 @@ image:
       value: production
     - name: SERVICE_NAME
       value: svc-messaging
+    - name: OTEL_EXPORTER_OTLP_ENDPOINT
+      value: http://otel-collector-stg.platform-stg.svc.cluster.local:4318
+    - name: OTEL_EXPORTER_OTLP_PROTOCOL
+      value: http/protobuf
+    - name: OTEL_EXPORTER_OTLP_TRACES_PROTOCOL
+      value: http/protobuf
   envFrom:
     - configMapRef:
         name: svc-messaging-stg-config
@@ -51,6 +57,8 @@ configMap:
     PORT: "4004"
     OIDC_ISSUER: https://auth.mereb.app/realms/mereb
     OIDC_AUDIENCE: account
+    SPLUNK_HEC_URL: https://splunk-hec.mereb.app/services/collector/event
+    SPLUNK_HEC_INDEX: logs-stg
 
 resources:
   requests:

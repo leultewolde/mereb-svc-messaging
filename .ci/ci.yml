@@ -17,6 +17,7 @@ image:
   context: .
   dockerfile: Dockerfile
   tagStrategy: branch-sha
+  tagTemplate: "{{tagName}}"
   push:
     enabled: true
     when: '!pr'
@@ -46,6 +47,9 @@ deploy:
           DATABASE_URL:
             vaultPath: kv/data/apps/dev
             vaultField: DATABASE_URL
+          SPLUNK_HEC_TOKEN:
+            vaultPath: kv/data/apps/dev
+            vaultField: SPLUNK_HEC_TOKEN
     vault:
       url: https://vault.leultewolde.com
       tokenEnv: VAULT_TOKEN
@@ -79,6 +83,9 @@ deploy:
           DATABASE_URL:
             vaultPath: kv/data/apps/stg
             vaultField: DATABASE_URL
+          SPLUNK_HEC_TOKEN:
+            vaultPath: kv/data/apps/stg
+            vaultField: SPLUNK_HEC_TOKEN
     vault:
       url: https://vault.leultewolde.com
       tokenEnv: VAULT_TOKEN
@@ -116,6 +123,9 @@ deploy:
           DATABASE_URL:
             vaultPath: kv/data/apps/prd
             vaultField: DATABASE_URL
+          SPLUNK_HEC_TOKEN:
+            vaultPath: kv/data/apps/prd
+            vaultField: SPLUNK_HEC_TOKEN
     vault:
       url: https://vault.leultewolde.com
       tokenEnv: VAULT_TOKEN

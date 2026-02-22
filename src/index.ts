@@ -1,8 +1,9 @@
 import { buildServer } from './server.js'
-import { getNumberEnv, loadEnv } from '@mereb/shared-packages'
+import { getNumberEnv, initDefaultTelemetry, loadEnv } from '@mereb/shared-packages'
 import { runMigrations } from './migrate.js'
 
 loadEnv()
+initDefaultTelemetry('svc-messaging')
 
 const PORT = getNumberEnv('PORT', 4004)
 const HOST = process.env.HOST ?? '0.0.0.0'
