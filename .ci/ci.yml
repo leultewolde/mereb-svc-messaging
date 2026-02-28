@@ -14,6 +14,14 @@ build:
     steps:
       - type: lint
         name: Lint service sources
+      - type: typecheck
+        name: Typecheck service package
+      - type: test
+        name: Run unit tests
+        command: test:unit
+      - type: test
+        name: Run integration tests
+        command: test:integration
       - type: build
         name: Build service package
 

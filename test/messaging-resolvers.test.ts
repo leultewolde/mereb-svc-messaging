@@ -1,7 +1,8 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import { createResolvers } from '../src/adapters/inbound/graphql/resolvers.js';
 import type { MessagingApplicationModule } from '../src/application/messaging/use-cases.js';
+import { ConversationNotFoundError, MissingRecipientError } from '../src/domain/messaging/errors.js';
 
 function createMessagingStub(): MessagingApplicationModule {
   return {
@@ -102,4 +103,127 @@ test('resolver sendMessage delegates trimmed body to use case', async () => {
 
   assert.equal(receivedBody, 'hello');
   assert.equal(result.body, 'hello');
+});
+
+test('conversation queries delegate to the application module', async () => {
+  let listConversationsCalled = false;
+  let listMessagesArgs:
+    | { conversationId: string; after?: string; limit?: number }
+    | null = null;
+  const messaging = createMessagingStub();
+  messaging.queries.listConversations = {
+    async execute() {
+      listConversationsCalled = true;
+      return [];
+    }
+  } as MessagingApplicationModule['queries']['listConversations'];
+  messaging.queries.listMessages = {
+    async execute(input) {
+      listMessagesArgs = input;
+      return {
+        edges: [],
+        pageInfo: { endCursor: null, hasNextPage: false }
+      };
+    }
+  } as MessagingApplicationModule['queries']['listMessages'];
+
+  const resolvers = createResolvers(messaging);
+  const query = resolvers.Query as Record<string, (...args: unknown[]) => Promise<unknown>>;
+
+  await query.conversations({}, {}, { userId: 'u1' });
+  await query.messages(
+    {},
+    { conversationId: 'c1', after: 'm1', limit: 5 },
+    { userId: 'u1' }
+  );
+
+  assert.equal(listConversationsCalled, true);
+  assert.deepEqual(listMessagesArgs, {
+    conversationId: 'c1',
+    after: 'm1',
+    limit: 5
+  });
+});
+
+test('conversation lastMessage field delegates to the query layer', async () => {
+  let requestedConversationId = '';
+  const messaging = createMessagingStub();
+  messaging.queries.getConversationLastMessage = {
+    async execute(input) {
+      requestedConversationId = input.conversationId;
+      return null;
+    }
+  } as MessagingApplicationModule['queries']['getConversationLastMessage'];
+
+  const resolvers = createResolvers(messaging);
+  const conversation = resolvers.Conversation as Record<string, (...args: unknown[]) => Promise<unknown>>;
+
+  await conversation.lastMessage({ id: 'c42' });
+
+  assert.equal(requestedConversationId, 'c42');
+});
+
+test('messaging resolvers delegate conversation/entity queries and map domain errors', async () => {
+  const calls: Array<{ kind: string; payload: unknown }> = [];
+  const messaging = createMessagingStub();
+  messaging.queries.getConversation = {
+    async execute(input, ctx) {
+      calls.push({ kind: 'getConversation', payload: { input, ctx } });
+      return null;
+    }
+  } as MessagingApplicationModule['queries']['getConversation'];
+  messaging.queries.resolveConversationReference = {
+    async execute(input) {
+      calls.push({ kind: 'resolveConversationReference', payload: input });
+      return { id: input.id };
+    }
+  } as MessagingApplicationModule['queries']['resolveConversationReference'];
+  messaging.queries.listMessages = {
+    async execute() {
+      throw new ConversationNotFoundError();
+    }
+  } as MessagingApplicationModule['queries']['listMessages'];
+  messaging.commands.sendMessage = {
+    async execute() {
+      throw new MissingRecipientError();
+    }
+  } as MessagingApplicationModule['commands']['sendMessage'];
+
+  const resolvers = createResolvers(messaging);
+  const query = resolvers.Query as Record<string, (...args: unknown[]) => Promise<unknown>>;
+  const mutation = resolvers.Mutation as Record<string, (...args: unknown[]) => Promise<unknown>>;
+
+  await query.conversation({}, { id: 'c1' }, { userId: 'u1' });
+  const entities = await query._entities(
+    {},
+    {
+      representations: [
+        { __typename: 'Conversation', id: 'c1' },
+        { __typename: 'Unknown', id: 'x' }
+      ]
+    },
+    {}
+  );
+  assert.deepEqual(query._service({}, {}, {}), { sdl: null });
+
+  await assert.rejects(
+    () => query.messages({}, { conversationId: 'c1' }, { userId: 'u1' }),
+    (error) => error instanceof Error && error.message === 'Conversation not found'
+  );
+  await assert.rejects(
+    () => mutation.sendMessage({}, { body: 'hello' }, { userId: 'u1' }),
+    (error) =>
+      error instanceof Error &&
+      error.message === 'toUserId is required when conversationId is not provided'
+  );
+
+  assert.equal(entities[0] !== null, true);
+  assert.equal(entities[1], null);
+  assert.deepEqual(calls, [
+    {
+      kind: 'getConversation',
+      payload: { input: { id: 'c1' }, ctx: { principal: { userId: 'u1' } } }
+    },
+    { kind: 'resolveConversationReference', payload: { id: 'c1' } }
+  ]);
 });

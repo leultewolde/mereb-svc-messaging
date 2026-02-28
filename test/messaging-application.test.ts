@@ -1,4 +1,4 @@
-import test from 'node:test';
+import { test } from 'vitest';
 import assert from 'node:assert/strict';
 import {
   createMessagingApplicationModule
@@ -11,6 +11,11 @@ import type {
   MessagingRepositoryPort,
   MessagingTransactionPort
 } from '../src/application/messaging/ports.js';
+import {
+  AuthenticationRequiredError,
+  ConversationNotFoundError,
+  MissingRecipientError
+} from '../src/domain/messaging/errors.js';
 
 function conversation(partial: Partial<ConversationRecord> & Pick<ConversationRecord, 'id'>): ConversationRecord {
   return {
@@ -170,5 +175,92 @@ test('sendMessage throws when unauthenticated', async () => {
     (error) =>
       error instanceof Error &&
       error.message === 'Authentication required to send messages'
+  );
+});
+
+test('messaging queries and seed command delegate through the repository', async () => {
+  const repo = new FakeRepo();
+  const events = new FakeEvents();
+  const convo = conversation({ id: 'c1', participantIds: ['u1', 'u2'] });
+  repo.conversations.set(convo.id, convo);
+  repo.messages.push(
+    message({
+      id: 'm1',
+      conversationId: 'c1',
+      senderId: 'u1',
+      body: 'hello'
+    })
+  );
+
+  const messaging = createMessagingApplicationModule({
+    repository: repo,
+    transactionRunner: transactionRunner(repo, events)
+  });
+
+  await messaging.commands.ensureSeedData.execute();
+  const ctx = messaging.helpers.toExecutionContext({ userId: 'u1' });
+
+  assert.equal(repo.seeded, true);
+  assert.equal((await messaging.queries.listConversations.execute(ctx)).length, 1);
+  assert.equal(
+    (await messaging.queries.getConversation.execute({ id: 'c1' }, ctx))?.id,
+    'c1'
+  );
+  assert.equal(
+    (await messaging.queries.resolveConversationReference.execute({ id: 'c1' }))?.id,
+    'c1'
+  );
+  assert.equal(
+    (await messaging.queries.getConversationLastMessage.execute({ conversationId: 'c1' }))?.id,
+    'm1'
+  );
+
+  const messages = await messaging.queries.listMessages.execute(
+    { conversationId: 'c1', after: 'm0', limit: 99 },
+    ctx
+  );
+  assert.equal(messages.edges.length, 1);
+
+  await assert.rejects(
+    () => messaging.queries.listConversations.execute({}),
+    (error) => error instanceof AuthenticationRequiredError
+  );
+  await assert.rejects(
+    () => messaging.queries.listMessages.execute({ conversationId: 'missing' }, ctx),
+    (error) => error instanceof ConversationNotFoundError
+  );
+});
+
+test('sendMessage reuses direct conversations and validates recipients', async () => {
+  const repo = new FakeRepo();
+  const events = new FakeEvents();
+  const convo = conversation({ id: 'c1', participantIds: ['u1', 'u2'] });
+  repo.conversations.set(convo.id, convo);
+  repo.directIndex.set(['u1', 'u2'].sort().join('|'), convo.id);
+
+  const messaging = createMessagingApplicationModule({
+    repository: repo,
+    transactionRunner: transactionRunner(repo, events)
+  });
+
+  const result = await messaging.commands.sendMessage.execute(
+    { toUserId: 'u2', body: 'hello again' },
+    { principal: { userId: 'u1' } }
+  );
+
+  assert.equal(result.conversationId, 'c1');
+  assert.deepEqual(events.calls.map((call) => call.type), ['messageSent']);
+  assert.deepEqual(repo.touched, [{ conversationId: 'c1', currentUnreadCount: 0 }]);
+
+  await assert.rejects(
+    () => messaging.commands.sendMessage.execute({ body: 'hello' }, { principal: { userId: 'u1' } }),
+    (error) => error instanceof MissingRecipientError
+  );
+  await assert.rejects(
+    () => messaging.commands.sendMessage.execute(
+      { conversationId: 'missing', body: 'hello' },
+      { principal: { userId: 'u1' } }
+    ),
+    (error) => error instanceof ConversationNotFoundError
   );
 });

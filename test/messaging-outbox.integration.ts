@@ -1,187 +1,224 @@
-import test from 'node:test';
 import assert from 'node:assert/strict';
+import net from 'node:net';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { afterAll, beforeAll, test } from 'vitest';
+import { GenericContainer, Wait } from 'testcontainers';
+import {
+  createKafkaIntegrationEventPublisher,
+  disconnectProducer
+} from '@mereb/shared-packages';
+import {
+  createTemporarySchemaName,
+  dropSchema,
+  provisionSchema,
+  runPrismaMigrateDeploy,
+  withSchema
+} from '@mereb/shared-packages/testing/db';
+import {
+  ensureKafkaTopicExists,
+  waitForKafkaTopicMessages
+} from '@mereb/shared-packages/testing/kafka';
 import { PrismaClient } from '../generated/client/index.js';
-import { createMessagingApplicationModule } from '../src/application/messaging/use-cases.js';
 import {
   PrismaMessagingOutboxRelayStore,
   PrismaMessagingRepository,
   PrismaMessagingTransactionRunner
 } from '../src/adapters/outbound/prisma/messaging-prisma-repository.js';
-import { MESSAGING_EVENT_TOPICS } from '../src/contracts/messaging-events.js';
+import { createMessagingApplicationModule } from '../src/application/messaging/use-cases.js';
 import { flushMessagingOutboxOnce } from '../src/bootstrap/outbox-relay.js';
-import {
-  ensureKafkaTopicExists,
-  createSocketForwardKafkaPublisher,
-  createTemporarySchemaName,
-  dropSchema,
-  installDnsOverride,
-  provisionSchema,
-  runPrismaMigrateDeploy,
-  waitForKafkaMessage,
-  withSchema
-} from '../../../scripts/test-support/db-kafka-integration.mjs';
+import { MESSAGING_EVENT_TOPICS } from '../src/contracts/messaging-events.js';
 
-test('sendMessage writes to outbox and publishes to Kafka', { timeout: 30_000 }, async () => {
-  const adminUrl =
-    process.env.MESSAGING_INTEGRATION_DATABASE_ADMIN_URL ??
-    'postgresql://postgres:postgres@localhost:5432/mereb-db?schema=public';
-  const baseServiceUrl =
-    process.env.MESSAGING_INTEGRATION_DATABASE_URL ??
-    'postgresql://svc_messaging_rw:svc_messaging_rw@localhost:5432/mereb-db?schema=svc_messaging';
-  const schemaOwner = process.env.MESSAGING_INTEGRATION_SCHEMA_OWNER ?? 'svc_messaging_rw';
-  const brokers = (
-    process.env.MESSAGING_INTEGRATION_KAFKA_BROKERS ??
-    process.env.KAFKA_BROKERS ??
-    'localhost:9092'
-  )
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean);
+const serviceDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+const databaseName = 'mereb-db';
+const roleName = 'svc_messaging_rw';
 
-  const schema = createTemporarySchemaName('svc_messaging_it');
-  const databaseUrl = withSchema(baseServiceUrl, schema);
-  const admin = new PrismaClient({ datasources: { db: { url: adminUrl } } });
-  let prisma: PrismaClient | null = null;
-  let publisherHandle:
-    | Awaited<ReturnType<typeof createSocketForwardKafkaPublisher>>
-    | null = null;
-  const restoreDns = installDnsOverride(
-    brokers.map((broker) => broker.split(':')[0] ?? broker)
+type StartedContainer = Awaited<ReturnType<GenericContainer['start']>>;
+
+let postgresContainer: StartedContainer | null = null;
+let redpandaContainer: StartedContainer | null = null;
+
+beforeAll(async () => {
+  postgresContainer = await new GenericContainer('postgres:16')
+    .withEnvironment({
+      POSTGRES_DB: databaseName,
+      POSTGRES_USER: 'postgres',
+      POSTGRES_PASSWORD: 'postgres'
+    })
+    .withExposedPorts(5432)
+    .withWaitStrategy(Wait.forLogMessage('database system is ready to accept connections'))
+    .start();
+
+  redpandaContainer = await new GenericContainer('redpandadata/redpanda:v24.1.11')
+    .withCommand([
+      'redpanda',
+      'start',
+      '--overprovisioned',
+      '--smp',
+      '1',
+      '--memory',
+      '1G',
+      '--reserve-memory',
+      '0M',
+      '--node-id',
+      '0',
+      '--check=false'
+    ])
+    .withExposedPorts(9092)
+    .withWaitStrategy(Wait.forListeningPorts())
+    .start();
+}, 180_000);
+
+afterAll(async () => {
+  await disconnectProducer().catch(() => undefined);
+  if (redpandaContainer) {
+    await redpandaContainer.stop();
+  }
+  if (postgresContainer) {
+    await postgresContainer.stop();
+  }
+}, 180_000);
+
+function getAdminDatabaseUrl(): string {
+  if (!postgresContainer) {
+    throw new Error('Postgres container not started');
+  }
+
+  return `postgresql://postgres:postgres@${postgresContainer.getHost()}:${postgresContainer.getMappedPort(5432)}/${databaseName}?schema=public`;
+}
+
+function getBaseServiceDatabaseUrl(): string {
+  if (!postgresContainer) {
+    throw new Error('Postgres container not started');
+  }
+
+  return `postgresql://${roleName}:${roleName}@${postgresContainer.getHost()}:${postgresContainer.getMappedPort(5432)}/${databaseName}?schema=svc_messaging`;
+}
+
+function getKafkaConfig(): Parameters<typeof createKafkaIntegrationEventPublisher>[0] {
+  if (!redpandaContainer) {
+    throw new Error('Redpanda container not started');
+  }
+
+  const host = redpandaContainer.getHost();
+  const port = redpandaContainer.getMappedPort(9092);
+
+  return {
+    clientId: 'svc-messaging-it',
+    brokers: [`${host}:${port}`],
+    socketFactory: ({ onConnect }) => net.connect({ host, port }, onConnect)
+  };
+}
+
+async function ensureServiceRole(admin: PrismaClient): Promise<void> {
+  await admin.$executeRawUnsafe(`
+    DO $role$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '${roleName}') THEN
+        CREATE ROLE ${roleName} LOGIN PASSWORD '${roleName}';
+      ELSE
+        ALTER ROLE ${roleName} WITH LOGIN PASSWORD '${roleName}';
+      END IF;
+    END
+    $role$;
+  `);
+  await admin.$executeRawUnsafe(
+    `GRANT CONNECT ON DATABASE "${databaseName}" TO ${roleName}`
   );
-  const useRpkConsumer = Boolean(
-    process.env.KAFKA_RPK_NAMESPACE &&
-      process.env.KAFKA_RPK_POD &&
-      process.env.KAFKA_RPK_BROKER
-  );
+}
 
-  const previousKafkaBrokers = process.env.KAFKA_BROKERS;
-  const previousKafkaSsl = process.env.KAFKA_SSL;
-  const previousKafkaPortForwardHost = process.env.KAFKA_PORT_FORWARD_HOST;
-  const previousKafkaPortForwardPort = process.env.KAFKA_PORT_FORWARD_PORT;
-
-  try {
-    await provisionSchema(admin, { schema, ownerRole: schemaOwner });
-    await runPrismaMigrateDeploy({
-      serviceDir: 'services/svc-messaging',
-      databaseUrl
-    });
-
-    prisma = new PrismaClient({ datasources: { db: { url: databaseUrl } } });
-    const repository = new PrismaMessagingRepository(prisma);
-    const transactionRunner = new PrismaMessagingTransactionRunner(prisma);
-    const messaging = createMessagingApplicationModule({
-      repository,
-      transactionRunner
-    });
-
-    const conversation = await prisma.conversation.create({
-      data: {
-        title: 'Integration thread',
-        participantIds: ['u1', 'u2'],
-        unreadCount: 0
+test(
+  'sendMessage writes an outbox event and publishes it to Kafka',
+  { timeout: 180_000 },
+  async () => {
+    const schema = createTemporarySchemaName('svc_messaging_it');
+    const databaseUrl = withSchema(getBaseServiceDatabaseUrl(), schema);
+    const kafkaConfig = getKafkaConfig();
+    const admin = new PrismaClient({
+      datasources: {
+        db: {
+          url: getAdminDatabaseUrl()
+        }
       }
     });
+    let prisma: PrismaClient | null = null;
 
-    let expectedConversationId = conversation.id;
-    delete process.env.KAFKA_PORT_FORWARD_HOST;
-    delete process.env.KAFKA_PORT_FORWARD_PORT;
-    const consumeMessage = useRpkConsumer
-      ? null
-      : waitForKafkaMessage({
-          brokers,
-          topic: MESSAGING_EVENT_TOPICS.messageSent,
-          groupId: `svc-messaging-it-${schema}`,
-          predicate: ({ value }) => {
-            const parsed = JSON.parse(value) as { data?: { conversation_id?: string } };
-            return parsed.data?.conversation_id === expectedConversationId;
+    try {
+      await ensureServiceRole(admin);
+      await provisionSchema(admin, { schema, ownerRole: roleName });
+      await runPrismaMigrateDeploy({
+        cwd: serviceDir,
+        databaseUrl
+      });
+
+      prisma = new PrismaClient({
+        datasources: {
+          db: {
+            url: databaseUrl
           }
-        });
+        }
+      });
 
-    const sent = await messaging.commands.sendMessage.execute(
-      {
-        conversationId: conversation.id,
-        body: 'hello from integration'
-      },
-      { principal: { userId: 'u1' } }
-    );
+      const messaging = createMessagingApplicationModule({
+        repository: new PrismaMessagingRepository(prisma),
+        transactionRunner: new PrismaMessagingTransactionRunner(prisma)
+      });
 
-    assert.equal(sent.conversationId, conversation.id);
+      const conversation = await prisma.conversation.create({
+        data: {
+          title: 'Integration thread',
+          participantIds: ['u1', 'u2'],
+          unreadCount: 0
+        }
+      });
 
-    const store = new PrismaMessagingOutboxRelayStore(prisma);
-    const pendingBefore = await store.listDue(10);
-    assert.equal(pendingBefore.length, 1);
+      const sent = await messaging.commands.sendMessage.execute(
+        {
+          conversationId: conversation.id,
+          body: 'hello from integration'
+        },
+        { principal: { userId: 'u1' } }
+      );
+      assert.equal(sent.conversationId, conversation.id);
 
-    await ensureKafkaTopicExists(MESSAGING_EVENT_TOPICS.messageSent);
-    publisherHandle = await createSocketForwardKafkaPublisher({
-      brokers,
-      clientId: `svc-messaging-it-publisher-${schema}`,
-      forwardHost: '127.0.0.1',
-      forwardPort: 19092,
-      sslInsecure: true
-    });
+      const store = new PrismaMessagingOutboxRelayStore(prisma);
+      const pendingBefore = await store.listDue(10);
+      assert.equal(pendingBefore.length, 1);
+      assert.equal(pendingBefore[0]?.topic, MESSAGING_EVENT_TOPICS.messageSent);
+      assert.equal(
+        (pendingBefore[0]?.envelope.data as { conversation_id?: string } | undefined)?.conversation_id,
+        conversation.id
+      );
 
-    await flushMessagingOutboxOnce({
-      limit: 10,
-      store,
-      publisher: publisherHandle.publisher
-    });
-    const message = useRpkConsumer
-      ? await waitForKafkaMessage({
-          brokers,
-          topic: MESSAGING_EVENT_TOPICS.messageSent,
-          groupId: `svc-messaging-it-${schema}`,
-          predicate: ({ value }) => {
-            const parsed = JSON.parse(value) as { data?: { conversation_id?: string } };
-            return parsed.data?.conversation_id === expectedConversationId;
-          }
-        })
-      : await consumeMessage;
-    const envelope = JSON.parse(message.value) as {
-      event_type: string;
-      data: { conversation_id: string; message_id: string };
-    };
+      await ensureKafkaTopicExists({
+        ...kafkaConfig,
+        topic: MESSAGING_EVENT_TOPICS.messageSent
+      });
 
-    assert.equal(envelope.event_type, MESSAGING_EVENT_TOPICS.messageSent);
-    assert.equal(envelope.data.conversation_id, expectedConversationId);
-    assert.equal(envelope.data.message_id, sent.id);
+      await flushMessagingOutboxOnce({
+        limit: 10,
+        store,
+        publisher: createKafkaIntegrationEventPublisher(kafkaConfig)
+      });
 
-    const row = await prisma.outboxEvent.findUnique({
-      where: { id: pendingBefore[0]?.id ?? '' }
-    });
-    assert.equal(row?.status, 'PUBLISHED');
-  } finally {
-    if (previousKafkaBrokers === undefined) {
-      delete process.env.KAFKA_BROKERS;
-    } else {
-      process.env.KAFKA_BROKERS = previousKafkaBrokers;
+      const messageCount = await waitForKafkaTopicMessages({
+        ...kafkaConfig,
+        topic: MESSAGING_EVENT_TOPICS.messageSent,
+        minMessages: 1
+      });
+      assert.equal(messageCount, 1);
+
+      const row = await prisma.outboxEvent.findUnique({
+        where: { id: pendingBefore[0]?.id ?? '' }
+      });
+      assert.equal(row?.status, 'PUBLISHED');
+    } finally {
+      await disconnectProducer().catch(() => undefined);
+      if (prisma) {
+        await prisma.$disconnect();
+      }
+      await dropSchema(admin, schema);
+      await admin.$disconnect();
     }
-
-    if (previousKafkaSsl === undefined) {
-      delete process.env.KAFKA_SSL;
-    } else {
-      process.env.KAFKA_SSL = previousKafkaSsl;
-    }
-
-    if (previousKafkaPortForwardHost === undefined) {
-      delete process.env.KAFKA_PORT_FORWARD_HOST;
-    } else {
-      process.env.KAFKA_PORT_FORWARD_HOST = previousKafkaPortForwardHost;
-    }
-
-    if (previousKafkaPortForwardPort === undefined) {
-      delete process.env.KAFKA_PORT_FORWARD_PORT;
-    } else {
-      process.env.KAFKA_PORT_FORWARD_PORT = previousKafkaPortForwardPort;
-    }
-
-    if (prisma) {
-      await prisma.$disconnect();
-    }
-    if (publisherHandle) {
-      await publisherHandle.disconnect();
-    }
-    await dropSchema(admin, schema);
-    await admin.$disconnect();
-    restoreDns();
   }
-});
+);
