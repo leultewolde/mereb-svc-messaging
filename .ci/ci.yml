@@ -46,7 +46,7 @@ deploy:
           SECRET_NAME: svc-messaging-dev-secrets
           DATABASE_URL:
             vaultPath: kv/data/apps/dev
-            vaultField: DATABASE_URL
+            vaultField: MESSAGING_DATABASE_URL
           SPLUNK_HEC_TOKEN:
             vaultPath: kv/data/apps/dev
             vaultField: SPLUNK_HEC_TOKEN
@@ -82,7 +82,7 @@ deploy:
           SECRET_NAME: svc-messaging-stg-secrets
           DATABASE_URL:
             vaultPath: kv/data/apps/stg
-            vaultField: DATABASE_URL
+            vaultField: MESSAGING_DATABASE_URL
           SPLUNK_HEC_TOKEN:
             vaultPath: kv/data/apps/stg
             vaultField: SPLUNK_HEC_TOKEN
@@ -122,7 +122,7 @@ deploy:
           SECRET_NAME: svc-messaging-secrets
           DATABASE_URL:
             vaultPath: kv/data/apps/prd
-            vaultField: DATABASE_URL
+            vaultField: MESSAGING_DATABASE_URL
           SPLUNK_HEC_TOKEN:
             vaultPath: kv/data/apps/prd
             vaultField: SPLUNK_HEC_TOKEN
