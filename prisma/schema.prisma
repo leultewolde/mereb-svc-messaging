@@ -31,3 +31,30 @@ model Message {
 
   @@index([conversationId, sentAt])
 }
+
+enum OutboxEventStatus {
+  PENDING
+  PROCESSING
+  PUBLISHED
+  FAILED
+  DEAD_LETTER
+}
+
+model OutboxEvent {
+  id              String            @id
+  topic           String
+  eventType       String
+  eventKey        String?
+  payload         Json
+  status          OutboxEventStatus @default(PENDING)
+  attempts        Int               @default(0)
+  lastError       String?
+  nextAttemptAt   DateTime          @default(now())
+  publishedAt     DateTime?
+  deadLetteredAt  DateTime?
+  deadLetterTopic String?
+  createdAt       DateTime          @default(now())
+
+  @@index([status, nextAttemptAt, createdAt])
+  @@index([createdAt])
+}

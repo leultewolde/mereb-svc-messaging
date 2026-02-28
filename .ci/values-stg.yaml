@@ -55,6 +55,10 @@ configMap:
   nameOverride: svc-messaging-stg-config
   data:
     PORT: "4004"
+    MESSAGING_EVENTS_ENABLED: "true"
+    KAFKA_BROKERS: platform-stg-redpanda-0.platform-stg-redpanda.platform-stg.svc.cluster.local:9092
+    KAFKA_SSL: "true"
+    KAFKA_SSL_INSECURE: "true"
     OIDC_ISSUER: https://auth.mereb.app/realms/mereb
     OIDC_AUDIENCE: account
     SPLUNK_HEC_URL: https://splunk-hec.mereb.app/services/collector/event

@@ -1,0 +1,28 @@
+replicaCount: 1
+
+podLabels:
+  mereb.dev/workload-role: outbox-relay
+
+image:
+  args:
+    - node
+    - dist/outboxRelayWorker.js
+
+service:
+  enabled: false
+  ports: []
+
+ingress:
+  enabled: false
+
+autoscaling:
+  enabled: false
+
+serviceMonitor:
+  enabled: false
+
+configMap:
+  enabled: false
+
+secret:
+  enabled: false

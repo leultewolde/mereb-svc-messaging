@@ -8,7 +8,8 @@ import type {
   MessageConnection,
   MessageRecord,
   MessagingEventPublisherPort,
-  MessagingRepositoryPort
+  MessagingRepositoryPort,
+  MessagingTransactionPort
 } from '../src/application/messaging/ports.js';
 
 function conversation(partial: Partial<ConversationRecord> & Pick<ConversationRecord, 'id'>): ConversationRecord {
@@ -124,12 +125,23 @@ class FakeEvents implements MessagingEventPublisherPort {
   }
 }
 
+function transactionRunner(
+  repository: MessagingRepositoryPort,
+  eventPublisher: MessagingEventPublisherPort
+): MessagingTransactionPort {
+  return {
+    async run<T>(callback): Promise<T> {
+      return callback({ repository, eventPublisher });
+    }
+  };
+}
+
 test('sendMessage creates direct conversation when needed and publishes events', async () => {
   const repo = new FakeRepo();
   const events = new FakeEvents();
   const messaging = createMessagingApplicationModule({
     repository: repo,
-    eventPublisher: events
+    transactionRunner: transactionRunner(repo, events)
   });
 
   const result = await messaging.commands.sendMessage.execute(
@@ -150,7 +162,7 @@ test('sendMessage throws when unauthenticated', async () => {
   const events = new FakeEvents();
   const messaging = createMessagingApplicationModule({
     repository: repo,
-    eventPublisher: events
+    transactionRunner: transactionRunner(repo, events)
   });
 
   await assert.rejects(

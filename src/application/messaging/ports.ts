@@ -29,6 +29,15 @@ export interface MessageConnection {
   };
 }
 
+export interface MessagingMutationPorts {
+  repository: MessagingRepositoryPort;
+  eventPublisher: MessagingEventPublisherPort;
+}
+
+export interface MessagingTransactionPort {
+  run<T>(callback: (ports: MessagingMutationPorts) => Promise<T>): Promise<T>;
+}
+
 export interface MessagingRepositoryPort {
   ensureSeedData(): Promise<void>;
   listUserConversations(userId: string): Promise<ConversationRecord[]>;

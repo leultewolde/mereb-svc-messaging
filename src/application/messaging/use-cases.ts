@@ -13,8 +13,8 @@ import type {
   ConversationRecord,
   MessageConnection,
   MessageRecord,
-  MessagingEventPublisherPort,
-  MessagingRepositoryPort
+  MessagingRepositoryPort,
+  MessagingTransactionPort
 } from './ports.js';
 import type { MessagingExecutionContext } from './context.js';
 
@@ -107,7 +107,7 @@ export class GetConversationLastMessageQuery {
 export class SendMessageUseCase {
   constructor(
     private readonly repository: MessagingRepositoryPort,
-    private readonly events: MessagingEventPublisherPort
+    private readonly transactionRunner: MessagingTransactionPort
   ) {}
 
   async execute(
@@ -117,65 +117,67 @@ export class SendMessageUseCase {
     const senderId = requireAuthToSend(ctx);
     const body = normalizeMessageBody(input.body);
 
-    let targetConversationId = input.conversationId;
-    let createdConversation: ConversationRecord | null = null;
+    return this.transactionRunner.run(async ({ repository, eventPublisher }) => {
+      let targetConversationId = input.conversationId;
+      let createdConversation: ConversationRecord | null = null;
 
-    if (!targetConversationId) {
-      if (!input.toUserId) {
-        throw new MissingRecipientError();
+      if (!targetConversationId) {
+        if (!input.toUserId) {
+          throw new MissingRecipientError();
+        }
+
+        const existing = await repository.findDirectConversation(
+          senderId,
+          input.toUserId
+        );
+
+        if (existing) {
+          targetConversationId = existing.id;
+        } else {
+          createdConversation = await repository.createDirectConversation({
+            participantIds: [senderId, input.toUserId]
+          });
+          targetConversationId = createdConversation.id;
+        }
       }
 
-      const existing = await this.repository.findDirectConversation(
+      const conversation = await repository.findConversationById(targetConversationId);
+      if (!conversation) {
+        throw new ConversationNotFoundError();
+      }
+
+      const message = await repository.createMessage({
+        conversationId: targetConversationId,
         senderId,
-        input.toUserId
-      );
-
-      if (existing) {
-        targetConversationId = existing.id;
-      } else {
-        createdConversation = await this.repository.createDirectConversation({
-          participantIds: [senderId, input.toUserId]
-        });
-        targetConversationId = createdConversation.id;
-      }
-    }
-
-    const conversation = await this.repository.findConversationById(targetConversationId);
-    if (!conversation) {
-      throw new ConversationNotFoundError();
-    }
-
-    const message = await this.repository.createMessage({
-      conversationId: targetConversationId,
-      senderId,
-      senderName: 'You',
-      body
-    });
-
-    await this.repository.touchConversationOnMessage({
-      conversationId: targetConversationId,
-      currentUnreadCount: conversation.unreadCount
-    });
-
-    if (createdConversation) {
-      const event = conversationCreatedEvent(
-        createdConversation.id,
-        createdConversation.participantIds
-      );
-      await this.events.publishConversationCreated({
-        conversationId: event.payload.conversationId,
-        participantIds: event.payload.participantIds
+        senderName: 'You',
+        body
       });
-    }
 
-    const sent = messageSentEvent(message.id, message.conversationId, message.senderId);
-    await this.events.publishMessageSent({
-      messageId: sent.payload.messageId,
-      conversationId: sent.payload.conversationId,
-      senderId: sent.payload.senderId
+      await repository.touchConversationOnMessage({
+        conversationId: targetConversationId,
+        currentUnreadCount: conversation.unreadCount
+      });
+
+      if (createdConversation) {
+        const event = conversationCreatedEvent(
+          createdConversation.id,
+          createdConversation.participantIds
+        );
+        await eventPublisher.publishConversationCreated({
+          conversationId: event.payload.conversationId,
+          participantIds: event.payload.participantIds
+        });
+      }
+
+      const sent = messageSentEvent(message.id, message.conversationId, message.senderId);
+      await eventPublisher.publishMessageSent({
+        messageId: sent.payload.messageId,
+        conversationId: sent.payload.conversationId,
+        senderId: sent.payload.senderId
+      });
+
+      return message;
     });
-
-    return message;
   }
 }
 
@@ -198,11 +200,11 @@ export interface MessagingApplicationModule {
 
 export function createMessagingApplicationModule(deps: {
   repository: MessagingRepositoryPort;
-  eventPublisher: MessagingEventPublisherPort;
+  transactionRunner: MessagingTransactionPort;
 }): MessagingApplicationModule {
   return {
     commands: {
-      sendMessage: new SendMessageUseCase(deps.repository, deps.eventPublisher),
+      sendMessage: new SendMessageUseCase(deps.repository, deps.transactionRunner),
       ensureSeedData: new EnsureMessagingSeedDataUseCase(deps.repository)
     },
     queries: {

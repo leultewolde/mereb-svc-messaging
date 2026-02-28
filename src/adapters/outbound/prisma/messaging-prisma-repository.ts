@@ -1,10 +1,25 @@
+import {
+  createIntegrationEventEnvelope,
+  type IntegrationEventEnvelope
+} from '@mereb/shared-packages';
 import { prisma } from '../../../prisma.js';
 import type {
   ConversationRecord,
   MessageConnection,
   MessageRecord,
-  MessagingRepositoryPort
+  MessagingEventPublisherPort,
+  MessagingMutationPorts,
+  MessagingRepositoryPort,
+  MessagingTransactionPort
 } from '../../../application/messaging/ports.js';
+import { MESSAGING_EVENT_TOPICS } from '../../../contracts/messaging-events.js';
+import {
+  OutboxEventStatus,
+  type Prisma,
+  type PrismaClient
+} from '../../../../generated/client/index.js';
+
+type MessagingPrismaDb = PrismaClient | Prisma.TransactionClient;
 
 type SeedMessage = {
   body: string;
@@ -114,12 +129,14 @@ function toMessageRecord(input: {
 }
 
 export class PrismaMessagingRepository implements MessagingRepositoryPort {
+  constructor(private readonly db: MessagingPrismaDb = prisma) {}
+
   async ensureSeedData(): Promise<void> {
-    const count = await prisma.conversation.count();
+    const count = await this.db.conversation.count();
     if (count > 0) return;
 
     for (const seed of seedConversations) {
-      await prisma.conversation.create({
+      await this.db.conversation.create({
         data: {
           title: seed.title,
           participantIds: seed.participantIds,
@@ -138,7 +155,7 @@ export class PrismaMessagingRepository implements MessagingRepositoryPort {
   }
 
   async listUserConversations(userId: string): Promise<ConversationRecord[]> {
-    const rows = await prisma.conversation.findMany({
+    const rows = await this.db.conversation.findMany({
       where: { participantIds: { has: userId } },
       orderBy: { updatedAt: 'desc' }
     });
@@ -149,14 +166,14 @@ export class PrismaMessagingRepository implements MessagingRepositoryPort {
     id: string,
     userId: string
   ): Promise<ConversationRecord | null> {
-    const row = await prisma.conversation.findFirst({
+    const row = await this.db.conversation.findFirst({
       where: { id, participantIds: { has: userId } }
     });
     return row ? toConversationRecord(row) : null;
   }
 
   async findConversationById(id: string): Promise<ConversationRecord | null> {
-    const row = await prisma.conversation.findUnique({ where: { id } });
+    const row = await this.db.conversation.findUnique({ where: { id } });
     return row ? toConversationRecord(row) : null;
   }
 
@@ -164,7 +181,7 @@ export class PrismaMessagingRepository implements MessagingRepositoryPort {
     userId: string,
     otherUserId: string
   ): Promise<ConversationRecord | null> {
-    const row = await prisma.conversation.findFirst({
+    const row = await this.db.conversation.findFirst({
       where: {
         participantIds: {
           hasEvery: [userId, otherUserId]
@@ -177,7 +194,7 @@ export class PrismaMessagingRepository implements MessagingRepositoryPort {
   async createDirectConversation(input: {
     participantIds: [string, string];
   }): Promise<ConversationRecord> {
-    const created = await prisma.conversation.create({
+    const created = await this.db.conversation.create({
       data: {
         title: 'Direct message',
         participantIds: input.participantIds,
@@ -192,7 +209,7 @@ export class PrismaMessagingRepository implements MessagingRepositoryPort {
     after?: string,
     limit = 20
   ): Promise<MessageConnection> {
-    const items = await prisma.message.findMany({
+    const items = await this.db.message.findMany({
       where: { conversationId },
       orderBy: { sentAt: 'desc' },
       cursor: after ? { id: after } : undefined,
@@ -222,7 +239,7 @@ export class PrismaMessagingRepository implements MessagingRepositoryPort {
     senderName?: string | null;
     body: string;
   }): Promise<MessageRecord> {
-    const created = await prisma.message.create({
+    const created = await this.db.message.create({
       data: {
         conversationId: input.conversationId,
         senderId: input.senderId,
@@ -237,7 +254,7 @@ export class PrismaMessagingRepository implements MessagingRepositoryPort {
     conversationId: string;
     currentUnreadCount: number;
   }): Promise<void> {
-    await prisma.conversation.update({
+    await this.db.conversation.update({
       where: { id: input.conversationId },
       data: {
         updatedAt: new Date(),
@@ -247,10 +264,227 @@ export class PrismaMessagingRepository implements MessagingRepositoryPort {
   }
 
   async findLatestMessage(conversationId: string): Promise<MessageRecord | null> {
-    const latest = await prisma.message.findFirst({
+    const latest = await this.db.message.findFirst({
       where: { conversationId },
       orderBy: { sentAt: 'desc' }
     });
     return latest ? toMessageRecord(latest) : null;
+  }
+}
+
+export class PrismaMessagingOutboxEventPublisher implements MessagingEventPublisherPort {
+  constructor(private readonly db: MessagingPrismaDb = prisma) {}
+
+  async publishConversationCreated(input: {
+    conversationId: string;
+    participantIds: string[];
+  }): Promise<void> {
+    const envelope = createIntegrationEventEnvelope({
+      eventType: MESSAGING_EVENT_TOPICS.conversationCreated,
+      producer: 'svc-messaging',
+      data: {
+        conversation_id: input.conversationId,
+        participant_ids: input.participantIds
+      }
+    });
+
+    await this.createOutboxEvent(
+      envelope.event_id,
+      MESSAGING_EVENT_TOPICS.conversationCreated,
+      input.conversationId,
+      envelope
+    );
+  }
+
+  async publishMessageSent(input: {
+    messageId: string;
+    conversationId: string;
+    senderId: string;
+  }): Promise<void> {
+    const envelope = createIntegrationEventEnvelope({
+      eventType: MESSAGING_EVENT_TOPICS.messageSent,
+      producer: 'svc-messaging',
+      data: {
+        message_id: input.messageId,
+        conversation_id: input.conversationId,
+        sender_id: input.senderId
+      }
+    });
+
+    await this.createOutboxEvent(
+      envelope.event_id,
+      MESSAGING_EVENT_TOPICS.messageSent,
+      input.conversationId,
+      envelope
+    );
+  }
+
+  private async createOutboxEvent(
+    id: string,
+    topic: string,
+    eventKey: string,
+    envelope: IntegrationEventEnvelope<unknown>
+  ): Promise<void> {
+    await this.db.outboxEvent.create({
+      data: {
+        id,
+        topic,
+        eventType: envelope.event_type,
+        eventKey,
+        payload: envelope as unknown as Prisma.InputJsonValue,
+        status: OutboxEventStatus.PENDING
+      }
+    });
+  }
+}
+
+export interface PendingMessagingOutboxEvent {
+  id: string;
+  topic: string;
+  eventType: string;
+  eventKey: string | null;
+  envelope: IntegrationEventEnvelope<unknown>;
+  attempts: number;
+}
+
+export interface MessagingOutboxStatusCounts {
+  pending: number;
+  processing: number;
+  published: number;
+  failed: number;
+  deadLetter: number;
+}
+
+export class PrismaMessagingOutboxRelayStore {
+  constructor(private readonly db: MessagingPrismaDb = prisma) {}
+
+  async listDue(limit: number, now = new Date()): Promise<PendingMessagingOutboxEvent[]> {
+    const rows = await this.db.outboxEvent.findMany({
+      where: {
+        status: { in: [OutboxEventStatus.PENDING, OutboxEventStatus.FAILED] },
+        nextAttemptAt: { lte: now }
+      },
+      orderBy: [{ createdAt: 'asc' }],
+      take: limit
+    });
+
+    return rows.map((row) => ({
+      id: row.id,
+      topic: row.topic,
+      eventType: row.eventType,
+      eventKey: row.eventKey,
+      envelope: row.payload as unknown as IntegrationEventEnvelope<unknown>,
+      attempts: row.attempts
+    }));
+  }
+
+  async claim(id: string): Promise<boolean> {
+    const result = await this.db.outboxEvent.updateMany({
+      where: {
+        id,
+        status: { in: [OutboxEventStatus.PENDING, OutboxEventStatus.FAILED] }
+      },
+      data: {
+        status: OutboxEventStatus.PROCESSING,
+        attempts: { increment: 1 },
+        lastError: null
+      }
+    });
+
+    return result.count > 0;
+  }
+
+  async markPublished(id: string, publishedAt = new Date()): Promise<void> {
+    await this.db.outboxEvent.updateMany({
+      where: { id },
+      data: {
+        status: OutboxEventStatus.PUBLISHED,
+        publishedAt,
+        lastError: null
+      }
+    });
+  }
+
+  async markFailed(id: string, error: string, nextAttemptAt: Date): Promise<void> {
+    await this.db.outboxEvent.updateMany({
+      where: { id },
+      data: {
+        status: OutboxEventStatus.FAILED,
+        lastError: error.slice(0, 4000),
+        nextAttemptAt,
+        publishedAt: null,
+        deadLetteredAt: null,
+        deadLetterTopic: null
+      }
+    });
+  }
+
+  async markDeadLetter(
+    id: string,
+    error: string,
+    input?: { deadLetteredAt?: Date; deadLetterTopic?: string | null }
+  ): Promise<void> {
+    await this.db.outboxEvent.updateMany({
+      where: { id },
+      data: {
+        status: OutboxEventStatus.DEAD_LETTER,
+        lastError: error.slice(0, 4000),
+        deadLetteredAt: input?.deadLetteredAt ?? new Date(),
+        deadLetterTopic: input?.deadLetterTopic ?? null,
+        publishedAt: null
+      }
+    });
+  }
+
+  async countByStatus(): Promise<MessagingOutboxStatusCounts> {
+    const rows = await this.db.outboxEvent.groupBy({
+      by: ['status'],
+      _count: { _all: true }
+    });
+
+    const counts: MessagingOutboxStatusCounts = {
+      pending: 0,
+      processing: 0,
+      published: 0,
+      failed: 0,
+      deadLetter: 0
+    };
+
+    for (const row of rows) {
+      switch (row.status) {
+        case OutboxEventStatus.PENDING:
+          counts.pending = row._count._all;
+          break;
+        case OutboxEventStatus.PROCESSING:
+          counts.processing = row._count._all;
+          break;
+        case OutboxEventStatus.PUBLISHED:
+          counts.published = row._count._all;
+          break;
+        case OutboxEventStatus.FAILED:
+          counts.failed = row._count._all;
+          break;
+        case OutboxEventStatus.DEAD_LETTER:
+          counts.deadLetter = row._count._all;
+          break;
+        default:
+          break;
+      }
+    }
+
+    return counts;
+  }
+}
+
+export class PrismaMessagingTransactionRunner implements MessagingTransactionPort {
+  constructor(private readonly db: PrismaClient = prisma) {}
+
+  async run<T>(callback: (ports: MessagingMutationPorts) => Promise<T>): Promise<T> {
+    return this.db.$transaction(async (tx) =>
+      callback({
+        repository: new PrismaMessagingRepository(tx),
+        eventPublisher: new PrismaMessagingOutboxEventPublisher(tx)
+      })
+    );
   }
 }
