@@ -89,6 +89,7 @@ deploy:
     valuesFiles:
       - .ci/values-dev.yaml
       - .ci/values-outbox-worker.yaml
+      - .ci/values-dev-outbox-worker.yaml
     notes: "Dedicated outbox relay worker deployment"
 
   stg:
