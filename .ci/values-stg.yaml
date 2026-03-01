@@ -2,6 +2,12 @@ nameOverride: svc-messaging
 
 replicaCount: 2
 
+deploymentStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 0
+    maxUnavailable: 1
+
 imagePullSecrets:
   - regcred
 

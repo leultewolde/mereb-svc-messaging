@@ -1,5 +1,11 @@
 replicaCount: 1
 
+deploymentStrategy:
+  type: RollingUpdate
+  rollingUpdate:
+    maxSurge: 0
+    maxUnavailable: 1
+
 podLabels:
   mereb.dev/workload-role: outbox-relay
 
