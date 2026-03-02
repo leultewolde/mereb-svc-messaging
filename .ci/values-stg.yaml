@@ -24,6 +24,11 @@ image:
       value: http/protobuf
     - name: OTEL_EXPORTER_OTLP_TRACES_PROTOCOL
       value: http/protobuf
+    - name: OIDC_ISSUER
+      valueFrom:
+        configMapKeyRef:
+          name: platform-identity-stg
+          key: OIDC_ISSUER
   envFrom:
     - configMapRef:
         name: svc-messaging-stg-config
@@ -65,7 +70,6 @@ configMap:
     KAFKA_BROKERS: platform-stg-redpanda-0.platform-stg-redpanda.platform-stg.svc.cluster.local:9092
     KAFKA_SSL: "true"
     KAFKA_SSL_INSECURE: "true"
-    OIDC_ISSUER: https://auth.mereb.app/realms/mereb
     OIDC_AUDIENCE: account
     SPLUNK_HEC_URL: https://splunk-hec.mereb.app/services/collector/event
     SPLUNK_HEC_INDEX: logs-stg

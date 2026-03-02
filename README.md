@@ -1,3 +1,3 @@
 ## svc-messaging
 
-Lightweight messaging stub service that exposes a federated GraphQL API for conversations and messages. It is currently in-memory only and intended as a starter surface for wiring microfrontends and clients while the full backend is built.
+Federated GraphQL messaging service for conversations and messages. The local and deployed service runs with the real Prisma-backed repository, seeds baseline conversation data, and supports the web messaging flow without UI-side mocks.
