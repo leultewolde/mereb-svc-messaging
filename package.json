@@ -32,11 +32,11 @@
     "@fastify/under-pressure": "^9.0.3",
     "@graphql-tools/schema": "^10.0.31",
     "@graphql-tools/utils": "^10.11.0",
-    "@mereb/shared-packages": "^0.0.40",
+    "@mereb/shared-packages": "0.0.42",
     "@prisma/client": "^5.22.0",
-    "fastify": "^5.7.4",
+    "fastify": "^5.8.1",
     "graphql": "^16.12.0",
-    "mercurius": "^16.7.0"
+    "mercurius": "^16.8.0"
   },
   "devDependencies": {
     "@eslint/eslintrc": "^3.3.3",
