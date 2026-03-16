@@ -32,7 +32,7 @@
     "@fastify/under-pressure": "^9.0.3",
     "@graphql-tools/schema": "^10.0.31",
     "@graphql-tools/utils": "^10.11.0",
-    "@mereb/shared-packages": "0.0.42",
+    "@mereb/shared-packages": "0.0.43",
     "@prisma/client": "^5.22.0",
     "fastify": "^5.8.1",
     "graphql": "^16.12.0",
