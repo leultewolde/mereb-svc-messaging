@@ -27,6 +27,9 @@ autoscaling:
 serviceMonitor:
   enabled: false
 
+vaultSecretsOperator:
+  enabled: false
+
 configMap:
   enabled: false
 

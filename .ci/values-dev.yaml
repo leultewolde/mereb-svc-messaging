@@ -34,7 +34,41 @@ image:
         name: svc-messaging-dev-config
     - secretRef:
         name: svc-messaging-dev-secrets
-        optional: true
+        optional: false
+
+vaultSecretsOperator:
+  enabled: true
+  auth:
+    create: true
+    spec:
+      vaultAuthGlobalRef:
+        name: mereb-apps-dev
+        namespace: vault-secrets-operator
+      kubernetes:
+        role: apps-dev-svc-messaging
+      mount: kubernetes-dev
+  staticSecrets:
+    - name: svc-messaging-runtime
+      spec:
+        type: kv-v2
+        mount: kv
+        path: apps/dev
+        refreshAfter: 5m
+        destination:
+          name: svc-messaging-dev-secrets
+          create: true
+          overwrite: true
+          transformation:
+            excludes:
+              - .*
+            templates:
+              DATABASE_URL:
+                text: '{{- get .Secrets "MESSAGING_DATABASE_URL" -}}'
+              SPLUNK_HEC_TOKEN:
+                text: '{{- get .Secrets "SPLUNK_HEC_TOKEN" -}}'
+        rolloutRestartTargets:
+          - kind: Deployment
+            name: svc-messaging-dev
 
 service:
   ports:
