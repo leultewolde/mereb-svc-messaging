@@ -55,6 +55,21 @@ deploy:
     repoCredentialId: helm-chart-creds
     valuesFiles:
       - .ci/values-dev.yaml
+    generatedBaseValues:
+      profile: apiService
+      inputs:
+        serviceName: svc-messaging
+        containerPort: 4004
+        routePrefix: /messages
+        configMapName: svc-messaging-dev-config
+        secretName: svc-messaging-dev-secrets
+        tlsSecretName: messages-dev-tls
+        secretTemplates:
+          DATABASE_URL: MESSAGING_DATABASE_URL
+          SPLUNK_HEC_TOKEN: SPLUNK_HEC_TOKEN
+        extraEnv:
+          - name: OIDC_ISSUER
+            fromPlatformIdentityConfigKey: OIDC_ISSUER
     smoke:
       url: https://api-dev.mereb.app/messages/healthz
       retries: 3
@@ -69,6 +84,21 @@ deploy:
     repoCredentialId: helm-chart-creds
     valuesFiles:
       - .ci/values-dev.yaml
+    generatedBaseValues:
+      profile: apiService
+      inputs:
+        serviceName: svc-messaging
+        containerPort: 4004
+        routePrefix: /messages
+        configMapName: svc-messaging-dev-config
+        secretName: svc-messaging-dev-secrets
+        tlsSecretName: messages-dev-tls
+        secretTemplates:
+          DATABASE_URL: MESSAGING_DATABASE_URL
+          SPLUNK_HEC_TOKEN: SPLUNK_HEC_TOKEN
+        extraEnv:
+          - name: OIDC_ISSUER
+            fromPlatformIdentityConfigKey: OIDC_ISSUER
     generatedValues:
       profile: outboxWorker
       overlay:
@@ -87,6 +117,21 @@ deploy:
     repoCredentialId: helm-chart-creds
     valuesFiles:
       - .ci/values-stg.yaml
+    generatedBaseValues:
+      profile: apiService
+      inputs:
+        serviceName: svc-messaging
+        containerPort: 4004
+        routePrefix: /messages
+        configMapName: svc-messaging-stg-config
+        secretName: svc-messaging-stg-secrets
+        tlsSecretName: messages-stg-tls
+        secretTemplates:
+          DATABASE_URL: MESSAGING_DATABASE_URL
+          SPLUNK_HEC_TOKEN: SPLUNK_HEC_TOKEN
+        extraEnv:
+          - name: OIDC_ISSUER
+            fromPlatformIdentityConfigKey: OIDC_ISSUER
     smoke:
       url: https://api-stg.mereb.app/messages/healthz
       retries: 3
@@ -101,6 +146,21 @@ deploy:
     repoCredentialId: helm-chart-creds
     valuesFiles:
       - .ci/values-stg.yaml
+    generatedBaseValues:
+      profile: apiService
+      inputs:
+        serviceName: svc-messaging
+        containerPort: 4004
+        routePrefix: /messages
+        configMapName: svc-messaging-stg-config
+        secretName: svc-messaging-stg-secrets
+        tlsSecretName: messages-stg-tls
+        secretTemplates:
+          DATABASE_URL: MESSAGING_DATABASE_URL
+          SPLUNK_HEC_TOKEN: SPLUNK_HEC_TOKEN
+        extraEnv:
+          - name: OIDC_ISSUER
+            fromPlatformIdentityConfigKey: OIDC_ISSUER
     generatedValues:
       profile: outboxWorker
       overlay:
@@ -119,6 +179,21 @@ deploy:
     repoCredentialId: helm-chart-creds
     valuesFiles:
       - .ci/values-prd.yaml
+    generatedBaseValues:
+      profile: apiService
+      inputs:
+        serviceName: svc-messaging
+        containerPort: 4004
+        routePrefix: /messages
+        configMapName: svc-messaging-config
+        secretName: svc-messaging-secrets
+        tlsSecretName: messages-prd-tls
+        secretTemplates:
+          DATABASE_URL: MESSAGING_DATABASE_URL
+          SPLUNK_HEC_TOKEN: SPLUNK_HEC_TOKEN
+        extraEnv:
+          - name: OIDC_ISSUER
+            fromPlatformIdentityConfigKey: OIDC_ISSUER
     smoke:
       url: https://api.mereb.app/messages/healthz
       retries: 3
@@ -133,6 +208,21 @@ deploy:
     repoCredentialId: helm-chart-creds
     valuesFiles:
       - .ci/values-prd.yaml
+    generatedBaseValues:
+      profile: apiService
+      inputs:
+        serviceName: svc-messaging
+        containerPort: 4004
+        routePrefix: /messages
+        configMapName: svc-messaging-config
+        secretName: svc-messaging-secrets
+        tlsSecretName: messages-prd-tls
+        secretTemplates:
+          DATABASE_URL: MESSAGING_DATABASE_URL
+          SPLUNK_HEC_TOKEN: SPLUNK_HEC_TOKEN
+        extraEnv:
+          - name: OIDC_ISSUER
+            fromPlatformIdentityConfigKey: OIDC_ISSUER
     generatedValues:
       profile: outboxWorker
       overlay:

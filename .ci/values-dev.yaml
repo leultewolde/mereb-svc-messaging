@@ -1,5 +1,3 @@
-nameOverride: svc-messaging
-
 replicaCount: 1
 
 deploymentStrategy:
@@ -8,96 +6,7 @@ deploymentStrategy:
     maxSurge: 0
     maxUnavailable: 1
 
-imagePullSecrets:
-  - regcred
-
-image:
-  repository: registry.leultewolde.com/mereb/svc-messaging
-  env:
-    - name: NODE_ENV
-      value: production
-    - name: SERVICE_NAME
-      value: svc-messaging
-    - name: OTEL_EXPORTER_OTLP_ENDPOINT
-      value: http://otel-collector-dev.platform-dev.svc.cluster.local:4318
-    - name: OTEL_EXPORTER_OTLP_PROTOCOL
-      value: http/protobuf
-    - name: OTEL_EXPORTER_OTLP_TRACES_PROTOCOL
-      value: http/protobuf
-    - name: OIDC_ISSUER
-      valueFrom:
-        configMapKeyRef:
-          name: platform-identity-dev
-          key: OIDC_ISSUER
-  envFrom:
-    - configMapRef:
-        name: svc-messaging-dev-config
-    - secretRef:
-        name: svc-messaging-dev-secrets
-        optional: false
-
-vaultSecretsOperator:
-  enabled: true
-  auth:
-    create: true
-    spec:
-      vaultAuthGlobalRef:
-        name: mereb-apps-dev
-        namespace: vault-secrets-operator
-      kubernetes:
-        role: apps-dev-svc-messaging
-      mount: kubernetes-dev
-  staticSecrets:
-    - name: svc-messaging-runtime
-      spec:
-        type: kv-v2
-        mount: kv
-        path: apps/dev
-        refreshAfter: 5m
-        destination:
-          name: svc-messaging-dev-secrets
-          create: true
-          overwrite: true
-          transformation:
-            excludes:
-              - .*
-            templates:
-              DATABASE_URL:
-                text: '{{- get .Secrets "MESSAGING_DATABASE_URL" -}}'
-              SPLUNK_HEC_TOKEN:
-                text: '{{- get .Secrets "SPLUNK_HEC_TOKEN" -}}'
-        rolloutRestartTargets:
-          - kind: Deployment
-            name: svc-messaging-dev
-
-service:
-  ports:
-    - name: http
-      port: 80
-      targetPort: http
-      containerPort: 4004
-
-ingress:
-  enabled: true
-  className: kong
-  annotations:
-    kubernetes.io/ingress.class: kong
-    cert-manager.io/cluster-issuer: letsencrypt-http
-    konghq.com/strip-path: "true"
-  hosts:
-    - host: api-dev.mereb.app
-      paths:
-        - path: /messages
-          pathType: Prefix
-          servicePort: http
-  tls:
-    - secretName: messages-dev-tls
-      hosts:
-        - api-dev.mereb.app
-
 configMap:
-  enabled: true
-  nameOverride: svc-messaging-dev-config
   data:
     PORT: "4004"
     MESSAGING_EVENTS_ENABLED: "true"
