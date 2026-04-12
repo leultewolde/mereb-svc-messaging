@@ -300,6 +300,7 @@ export class PrismaMessagingOutboxEventPublisher implements MessagingEventPublis
     messageId: string;
     conversationId: string;
     senderId: string;
+    recipientIds: string[];
   }): Promise<void> {
     const envelope = createIntegrationEventEnvelope({
       eventType: MESSAGING_EVENT_TOPICS.messageSent,
@@ -307,7 +308,8 @@ export class PrismaMessagingOutboxEventPublisher implements MessagingEventPublis
       data: {
         message_id: input.messageId,
         conversation_id: input.conversationId,
-        sender_id: input.senderId
+        sender_id: input.senderId,
+        recipient_ids: input.recipientIds
       }
     });
 

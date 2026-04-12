@@ -169,11 +169,20 @@ export class SendMessageUseCase {
         });
       }
 
-      const sent = messageSentEvent(message.id, message.conversationId, message.senderId);
+      const recipientIds = conversation.participantIds.filter(
+        (participantId) => participantId !== senderId
+      );
+      const sent = messageSentEvent(
+        message.id,
+        message.conversationId,
+        message.senderId,
+        recipientIds
+      );
       await eventPublisher.publishMessageSent({
         messageId: sent.payload.messageId,
         conversationId: sent.payload.conversationId,
-        senderId: sent.payload.senderId
+        senderId: sent.payload.senderId,
+        recipientIds: sent.payload.recipientIds
       });
 
       return message;

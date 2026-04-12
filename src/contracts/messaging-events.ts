@@ -12,4 +12,5 @@ export interface MessagingMessageSentEventData {
   message_id: string;
   conversation_id: string;
   sender_id: string;
+  recipient_ids: string[];
 }
