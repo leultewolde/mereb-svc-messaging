@@ -62,8 +62,9 @@ deploy:
       containerPort: 4004
       routePrefix: /messages
       secretTemplates:
-        DATABASE_URL: MESSAGING_DATABASE_URL
         SPLUNK_HEC_TOKEN: SPLUNK_HEC_TOKEN
+      platformSecretTemplates:
+        DATABASE_URL: MESSAGING_DATABASE_URL
       extraEnv:
         - name: OIDC_ISSUER
           fromPlatformIdentityConfigKey: OIDC_ISSUER

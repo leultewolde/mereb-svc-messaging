@@ -18,6 +18,7 @@ export type MessageSentDomainEvent = DomainEvent<
     messageId: string;
     conversationId: string;
     senderId: string;
+    recipientIds: string[];
   }
 >;
 
@@ -38,7 +39,8 @@ export function conversationCreatedEvent(
 export function messageSentEvent(
   messageId: string,
   conversationId: string,
-  senderId: string
+  senderId: string,
+  recipientIds: string[]
 ): MessageSentDomainEvent {
   return {
     type: 'MessageSent',
@@ -46,7 +48,8 @@ export function messageSentEvent(
     payload: {
       messageId,
       conversationId,
-      senderId
+      senderId,
+      recipientIds
     }
   };
 }

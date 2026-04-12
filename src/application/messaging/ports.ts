@@ -74,6 +74,7 @@ export interface MessagingEventPublisherPort {
     messageId: string;
     conversationId: string;
     senderId: string;
+    recipientIds: string[];
   }): Promise<void>;
 }
 

@@ -50,6 +50,7 @@ class KafkaMessagingEventPublisherAdapter implements MessagingEventPublisherPort
     messageId: string;
     conversationId: string;
     senderId: string;
+    recipientIds: string[];
   }): Promise<void> {
     await this.publish<MessagingMessageSentEventData>({
       topic: MESSAGING_EVENT_TOPICS.messageSent,
@@ -58,7 +59,8 @@ class KafkaMessagingEventPublisherAdapter implements MessagingEventPublisherPort
       data: {
         message_id: input.messageId,
         conversation_id: input.conversationId,
-        sender_id: input.senderId
+        sender_id: input.senderId,
+        recipient_ids: input.recipientIds
       }
     });
   }
