@@ -49,6 +49,7 @@ deploy:
 
   defaults:
     chart: app-chart
+    chartVersion: 0.1.2
     repo: https://charts.leultewolde.com
     repoCredentialId: helm-chart-creds
     wait: true
