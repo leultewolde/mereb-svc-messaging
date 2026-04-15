@@ -10,9 +10,6 @@ configMap:
   data:
     PORT: "4004"
     MESSAGING_EVENTS_ENABLED: "true"
-    KAFKA_BROKERS: platform-dev-redpanda-0.platform-dev-redpanda.platform-dev.svc.cluster.local:9092
-    KAFKA_SSL: "true"
-    KAFKA_SSL_INSECURE: "true"
     OIDC_AUDIENCE: account
     SPLUNK_HEC_URL: https://splunk-hec.mereb.app/services/collector/event
     SPLUNK_HEC_INDEX: logs-dev

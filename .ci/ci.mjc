@@ -69,6 +69,15 @@ deploy:
       extraEnv:
         - name: OIDC_ISSUER
           fromPlatformIdentityConfigKey: OIDC_ISSUER
+        - name: KAFKA_BROKERS
+          fromPlatformIdentityConfigKey: KAFKA_BROKERS
+          optional: true
+        - name: KAFKA_SSL
+          fromPlatformIdentityConfigKey: KAFKA_SSL
+          optional: true
+        - name: KAFKA_SSL_INSECURE
+          fromPlatformIdentityConfigKey: KAFKA_SSL_INSECURE
+          optional: true
 
   dev:
     release: svc-messaging-dev
