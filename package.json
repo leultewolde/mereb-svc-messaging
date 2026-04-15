@@ -7,6 +7,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "clean": "rm -rf dist node_modules",
+    "lockfile:refresh": "node ./scripts/refresh-lockfile.mjs",
     "prebuild": "npm run prisma:generate",
     "pretypecheck": "npm run prisma:generate",
     "pretest:integration": "npm run prisma:generate",
@@ -34,7 +35,7 @@
     "@graphql-tools/utils": "^10.11.0",
     "@mereb/shared-packages": "0.0.44",
     "@prisma/client": "^5.22.0",
-    "fastify": "^5.8.1",
+    "fastify": "^5.8.3",
     "graphql": "^16.12.0",
     "mercurius": "^16.8.0"
   },
