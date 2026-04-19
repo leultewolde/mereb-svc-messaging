@@ -44,7 +44,13 @@ class FakeRepo implements MessagingRepositoryPort {
   directIndex = new Map<string, string>();
   messages: MessageRecord[] = [];
   seeded = false;
-  touched: Array<{ conversationId: string; currentUnreadCount: number }> = [];
+  sentRecords: Array<{
+    conversationId: string;
+    participantIds: string[];
+    senderId: string;
+    sentAt: Date;
+  }> = [];
+  readMarks: Array<{ conversationId: string; userId: string }> = [];
 
   async ensureSeedData(): Promise<void> {
     this.seeded = true;
@@ -99,11 +105,38 @@ class FakeRepo implements MessagingRepositoryPort {
     this.messages.push(m);
     return m;
   }
-  async touchConversationOnMessage(input: {
+  async recordMessageSent(input: {
     conversationId: string;
-    currentUnreadCount: number;
+    participantIds: string[];
+    senderId: string;
+    sentAt: Date;
   }): Promise<void> {
-    this.touched.push(input);
+    this.sentRecords.push(input);
+    const conversation = this.conversations.get(input.conversationId);
+    if (!conversation) {
+      return;
+    }
+
+    this.conversations.set(input.conversationId, {
+      ...conversation,
+      unreadCount: conversation.participantIds.includes(input.senderId) ? 0 : conversation.unreadCount,
+      updatedAt: input.sentAt
+    });
+  }
+  async markConversationRead(input: {
+    conversationId: string;
+    userId: string;
+  }): Promise<void> {
+    this.readMarks.push(input);
+    const conversation = this.conversations.get(input.conversationId);
+    if (!conversation || !conversation.participantIds.includes(input.userId)) {
+      return;
+    }
+
+    this.conversations.set(input.conversationId, {
+      ...conversation,
+      unreadCount: 0
+    });
   }
   async findLatestMessage(conversationId: string): Promise<MessageRecord | null> {
     const found = [...this.messages]
@@ -250,7 +283,9 @@ test('sendMessage reuses direct conversations and validates recipients', async (
 
   assert.equal(result.conversationId, 'c1');
   assert.deepEqual(events.calls.map((call) => call.type), ['messageSent']);
-  assert.deepEqual(repo.touched, [{ conversationId: 'c1', currentUnreadCount: 0 }]);
+  assert.equal(repo.sentRecords.length, 1);
+  assert.deepEqual(repo.sentRecords[0]?.participantIds, ['u1', 'u2']);
+  assert.equal(repo.sentRecords[0]?.senderId, 'u1');
 
   await assert.rejects(
     () => messaging.commands.sendMessage.execute({ body: 'hello' }, { principal: { userId: 'u1' } }),
@@ -261,6 +296,37 @@ test('sendMessage reuses direct conversations and validates recipients', async (
       { conversationId: 'missing', body: 'hello' },
       { principal: { userId: 'u1' } }
     ),
+    (error) => error instanceof ConversationNotFoundError
+  );
+});
+
+test('markConversationRead clears unread count for the authenticated viewer', async () => {
+  const repo = new FakeRepo();
+  const events = new FakeEvents();
+  repo.conversations.set(
+    'c1',
+    conversation({ id: 'c1', participantIds: ['u1', 'u2'], unreadCount: 3 })
+  );
+
+  const messaging = createMessagingApplicationModule({
+    repository: repo,
+    transactionRunner: transactionRunner(repo, events)
+  });
+
+  const result = await messaging.commands.markConversationRead.execute(
+    { conversationId: 'c1' },
+    { principal: { userId: 'u1' } }
+  );
+
+  assert.equal(result.unreadCount, 0);
+  assert.deepEqual(repo.readMarks, [{ conversationId: 'c1', userId: 'u1' }]);
+
+  await assert.rejects(
+    () =>
+      messaging.commands.markConversationRead.execute(
+        { conversationId: 'missing' },
+        { principal: { userId: 'u1' } }
+      ),
     (error) => error instanceof ConversationNotFoundError
   );
 });

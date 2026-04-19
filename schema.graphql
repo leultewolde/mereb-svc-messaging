@@ -57,4 +57,5 @@ type Query {
 
 type Mutation {
   sendMessage(conversationId: ID, toUserId: ID, body: String!): Message!
+  markConversationRead(conversationId: ID!): Conversation!
 }

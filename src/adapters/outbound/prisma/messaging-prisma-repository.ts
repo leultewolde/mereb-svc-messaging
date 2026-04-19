@@ -31,7 +31,6 @@ type SeedMessage = {
 type SeedConversation = {
   title: string;
   participantIds: string[];
-  unreadCount?: number;
   messages: SeedMessage[];
 };
 
@@ -42,7 +41,6 @@ const seedConversations: SeedConversation[] = [
   {
     title: 'Platform Ops',
     participantIds: ['u-platform', 'u-release', 'u-ops'],
-    unreadCount: 2,
     messages: [
       {
         body: 'Deploy to staging completed. Monitoring error rates for 15 minutes.',
@@ -61,7 +59,6 @@ const seedConversations: SeedConversation[] = [
   {
     title: 'Support triage',
     participantIds: ['u-support', 'u-oncall', 'u-platform'],
-    unreadCount: 0,
     messages: [
       {
         body: 'Ticket #1482 escalated to on-call. Latency spikes on profile reads.',
@@ -80,7 +77,6 @@ const seedConversations: SeedConversation[] = [
   {
     title: 'Design x Messaging',
     participantIds: ['u-design', 'u-product', 'u-messaging'],
-    unreadCount: 0,
     messages: [
       {
         body: 'Uploading the empty state illustrations in Figma now.',
@@ -108,6 +104,23 @@ function toConversationRecord(input: {
     updatedAt: input.updatedAt,
     createdAt: input.createdAt
   };
+}
+
+function latestMessageTimestamp(messages: ReadonlyArray<SeedMessage>): Date | null {
+  if (messages.length === 0) {
+    return null;
+  }
+
+  return [...messages]
+    .sort((left, right) => right.sentAt.getTime() - left.sentAt.getTime())[0]
+    ?.sentAt ?? null;
+}
+
+function resolveUnreadCount(
+  states: Array<{ unreadCount: number }> | undefined,
+  fallback = 0
+): number {
+  return states?.[0]?.unreadCount ?? fallback;
 }
 
 function toMessageRecord(input: {
@@ -140,7 +153,14 @@ export class PrismaMessagingRepository implements MessagingRepositoryPort {
         data: {
           title: seed.title,
           participantIds: seed.participantIds,
-          unreadCount: seed.unreadCount ?? 0,
+          unreadCount: 0,
+          participantStates: {
+            create: seed.participantIds.map((participantId) => ({
+              userId: participantId,
+              unreadCount: 0,
+              lastReadAt: latestMessageTimestamp(seed.messages)
+            }))
+          },
           messages: {
             create: seed.messages.map((message) => ({
               body: message.body,
@@ -157,9 +177,20 @@ export class PrismaMessagingRepository implements MessagingRepositoryPort {
   async listUserConversations(userId: string): Promise<ConversationRecord[]> {
     const rows = await this.db.conversation.findMany({
       where: { participantIds: { has: userId } },
+      include: {
+        participantStates: {
+          where: { userId },
+          take: 1
+        }
+      },
       orderBy: { updatedAt: 'desc' }
     });
-    return rows.map(toConversationRecord);
+    return rows.map((row) =>
+      toConversationRecord({
+        ...row,
+        unreadCount: resolveUnreadCount(row.participantStates)
+      })
+    );
   }
 
   async findUserConversation(
@@ -167,9 +198,20 @@ export class PrismaMessagingRepository implements MessagingRepositoryPort {
     userId: string
   ): Promise<ConversationRecord | null> {
     const row = await this.db.conversation.findFirst({
-      where: { id, participantIds: { has: userId } }
+      where: { id, participantIds: { has: userId } },
+      include: {
+        participantStates: {
+          where: { userId },
+          take: 1
+        }
+      }
     });
-    return row ? toConversationRecord(row) : null;
+    return row
+      ? toConversationRecord({
+          ...row,
+          unreadCount: resolveUnreadCount(row.participantStates)
+        })
+      : null;
   }
 
   async findConversationById(id: string): Promise<ConversationRecord | null> {
@@ -186,9 +228,20 @@ export class PrismaMessagingRepository implements MessagingRepositoryPort {
         participantIds: {
           hasEvery: [userId, otherUserId]
         }
+      },
+      include: {
+        participantStates: {
+          where: { userId },
+          take: 1
+        }
       }
     });
-    return row ? toConversationRecord(row) : null;
+    return row
+      ? toConversationRecord({
+          ...row,
+          unreadCount: resolveUnreadCount(row.participantStates)
+        })
+      : null;
   }
 
   async createDirectConversation(input: {
@@ -198,7 +251,13 @@ export class PrismaMessagingRepository implements MessagingRepositoryPort {
       data: {
         title: 'Direct message',
         participantIds: input.participantIds,
-        unreadCount: 0
+        unreadCount: 0,
+        participantStates: {
+          create: input.participantIds.map((participantId) => ({
+            userId: participantId,
+            unreadCount: 0
+          }))
+        }
       }
     });
     return toConversationRecord(created);
@@ -250,15 +309,89 @@ export class PrismaMessagingRepository implements MessagingRepositoryPort {
     return toMessageRecord(created);
   }
 
-  async touchConversationOnMessage(input: {
+  async recordMessageSent(input: {
     conversationId: string;
-    currentUnreadCount: number;
+    participantIds: string[];
+    senderId: string;
+    sentAt: Date;
   }): Promise<void> {
     await this.db.conversation.update({
       where: { id: input.conversationId },
       data: {
-        updatedAt: new Date(),
-        unreadCount: Math.max(0, input.currentUnreadCount - 1)
+        updatedAt: input.sentAt
+      }
+    });
+
+    for (const participantId of input.participantIds) {
+      if (participantId === input.senderId) {
+        await this.db.conversationParticipantState.upsert({
+          where: {
+            conversationId_userId: {
+              conversationId: input.conversationId,
+              userId: participantId
+            }
+          },
+          create: {
+            conversationId: input.conversationId,
+            userId: participantId,
+            unreadCount: 0,
+            lastReadAt: input.sentAt
+          },
+          update: {
+            unreadCount: 0,
+            lastReadAt: input.sentAt
+          }
+        });
+        continue;
+      }
+
+      await this.db.conversationParticipantState.upsert({
+        where: {
+          conversationId_userId: {
+            conversationId: input.conversationId,
+            userId: participantId
+          }
+        },
+        create: {
+          conversationId: input.conversationId,
+          userId: participantId,
+          unreadCount: 1,
+          lastReadAt: null
+        },
+        update: {
+          unreadCount: {
+            increment: 1
+          }
+        }
+      });
+    }
+  }
+
+  async markConversationRead(input: {
+    conversationId: string;
+    userId: string;
+  }): Promise<void> {
+    const latest = await this.db.message.findFirst({
+      where: { conversationId: input.conversationId },
+      orderBy: { sentAt: 'desc' }
+    });
+
+    await this.db.conversationParticipantState.upsert({
+      where: {
+        conversationId_userId: {
+          conversationId: input.conversationId,
+          userId: input.userId
+        }
+      },
+      create: {
+        conversationId: input.conversationId,
+        userId: input.userId,
+        unreadCount: 0,
+        lastReadAt: latest?.sentAt ?? null
+      },
+      update: {
+        unreadCount: 0,
+        lastReadAt: latest?.sentAt ?? null
       }
     });
   }

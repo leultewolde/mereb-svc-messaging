@@ -141,7 +141,10 @@ export class SendMessageUseCase {
         }
       }
 
-      const conversation = await repository.findConversationById(targetConversationId);
+      const conversation = await repository.findUserConversation(
+        targetConversationId,
+        senderId
+      );
       if (!conversation) {
         throw new ConversationNotFoundError();
       }
@@ -153,9 +156,11 @@ export class SendMessageUseCase {
         body
       });
 
-      await repository.touchConversationOnMessage({
+      await repository.recordMessageSent({
         conversationId: targetConversationId,
-        currentUnreadCount: conversation.unreadCount
+        participantIds: conversation.participantIds,
+        senderId,
+        sentAt: message.sentAt
       });
 
       if (createdConversation) {
@@ -190,9 +195,41 @@ export class SendMessageUseCase {
   }
 }
 
+export class MarkConversationReadUseCase {
+  constructor(private readonly repository: MessagingRepositoryPort) {}
+
+  async execute(
+    input: { conversationId: string },
+    ctx: MessagingExecutionContext
+  ): Promise<ConversationRecord> {
+    const userId = requireAuth(ctx);
+    const conversation = await this.repository.findUserConversation(
+      input.conversationId,
+      userId
+    );
+    if (!conversation) {
+      throw new ConversationNotFoundError();
+    }
+
+    await this.repository.markConversationRead({
+      conversationId: input.conversationId,
+      userId
+    });
+
+    return (
+      (await this.repository.findUserConversation(input.conversationId, userId)) ??
+      {
+        ...conversation,
+        unreadCount: 0
+      }
+    );
+  }
+}
+
 export interface MessagingApplicationModule {
   commands: {
     sendMessage: SendMessageUseCase;
+    markConversationRead: MarkConversationReadUseCase;
     ensureSeedData: EnsureMessagingSeedDataUseCase;
   };
   queries: {
@@ -214,6 +251,7 @@ export function createMessagingApplicationModule(deps: {
   return {
     commands: {
       sendMessage: new SendMessageUseCase(deps.repository, deps.transactionRunner),
+      markConversationRead: new MarkConversationReadUseCase(deps.repository),
       ensureSeedData: new EnsureMessagingSeedDataUseCase(deps.repository)
     },
     queries: {
