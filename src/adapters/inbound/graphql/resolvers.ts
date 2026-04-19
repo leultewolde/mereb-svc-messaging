@@ -90,6 +90,20 @@ export function createResolvers(
         } catch (error) {
           toGraphQLError(error);
         }
+      },
+      markConversationRead: async (
+        _source: unknown,
+        args: { conversationId: string },
+        ctx: GraphQLContext
+      ) => {
+        try {
+          return await messaging.commands.markConversationRead.execute(
+            { conversationId: args.conversationId },
+            messaging.helpers.toExecutionContext(ctx)
+          );
+        } catch (error) {
+          toGraphQLError(error);
+        }
       }
     },
     Conversation: {

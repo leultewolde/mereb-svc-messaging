@@ -58,9 +58,15 @@ export interface MessagingRepositoryPort {
     senderName?: string | null;
     body: string;
   }): Promise<MessageRecord>;
-  touchConversationOnMessage(input: {
+  recordMessageSent(input: {
     conversationId: string;
-    currentUnreadCount: number;
+    participantIds: string[];
+    senderId: string;
+    sentAt: Date;
+  }): Promise<void>;
+  markConversationRead(input: {
+    conversationId: string;
+    userId: string;
   }): Promise<void>;
   findLatestMessage(conversationId: string): Promise<MessageRecord | null>;
 }

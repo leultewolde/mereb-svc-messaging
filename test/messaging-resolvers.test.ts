@@ -19,6 +19,18 @@ function createMessagingStub(): MessagingApplicationModule {
           };
         }
       } as MessagingApplicationModule['commands']['sendMessage'],
+      markConversationRead: {
+        async execute(input) {
+          return {
+            id: input.conversationId,
+            title: 'Conversation',
+            participantIds: ['u1', 'u2'],
+            unreadCount: 0,
+            updatedAt: new Date('2026-01-01T00:00:00.000Z'),
+            createdAt: new Date('2026-01-01T00:00:00.000Z')
+          };
+        }
+      } as MessagingApplicationModule['commands']['markConversationRead'],
       ensureSeedData: {
         async execute() {}
       } as MessagingApplicationModule['commands']['ensureSeedData']
@@ -216,9 +228,15 @@ test('messaging resolvers delegate conversation/entity queries and map domain er
       error instanceof Error &&
       error.message === 'toUserId is required when conversationId is not provided'
   );
+  const readResult = await mutation.markConversationRead(
+    {},
+    { conversationId: 'c1' },
+    { userId: 'u1' }
+  );
 
   assert.equal(entities[0] !== null, true);
   assert.equal(entities[1], null);
+  assert.equal((readResult as { unreadCount: number }).unreadCount, 0);
   assert.deepEqual(calls, [
     {
       kind: 'getConversation',
