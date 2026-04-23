@@ -23,6 +23,18 @@ build:
       - type: test
         name: Run integration tests
         command: test:integration
+      - type: custom
+        name: Check GraphOS subgraph compatibility
+        sh: ./scripts/graphos/check-subgraph.sh
+        env:
+          SUBGRAPH_NAME: messaging
+          SERVICE_NAME: svc-messaging
+          GRAPHOS_GRAPH_ID: mereb-supergraph
+          GRAPHOS_VARIANTS: dev,stg,prd
+        credentials:
+          - type: string
+            id: graphos-rover-api-key
+            env: ROVER_APOLLO_KEY
       - type: build
         name: Build service package
 
@@ -94,6 +106,18 @@ deploy:
       retries: 3
       delay: 10
       timeout: 60s
+    postDeployStages:
+      - name: Publish GraphOS subgraph
+        env:
+          SUBGRAPH_NAME: messaging
+          SERVICE_NAME: svc-messaging
+          GRAPHOS_GRAPH_ID: mereb-supergraph
+          GRAPHOS_VARIANT: dev
+        credentials:
+          - type: string
+            id: graphos-rover-api-key
+            env: ROVER_APOLLO_KEY
+        sh: ./scripts/graphos/publish-subgraph.sh
 
   dev_outbox:
     extends: dev
@@ -125,6 +149,18 @@ deploy:
       retries: 3
       delay: 10
       timeout: 60s
+    postDeployStages:
+      - name: Publish GraphOS subgraph
+        env:
+          SUBGRAPH_NAME: messaging
+          SERVICE_NAME: svc-messaging
+          GRAPHOS_GRAPH_ID: mereb-supergraph
+          GRAPHOS_VARIANT: stg
+        credentials:
+          - type: string
+            id: graphos-rover-api-key
+            env: ROVER_APOLLO_KEY
+        sh: ./scripts/graphos/publish-subgraph.sh
 
   stg_outbox:
     extends: stg
@@ -156,12 +192,28 @@ deploy:
       retries: 3
       delay: 10
       timeout: 60s
+    postDeployStages:
+      - name: Publish GraphOS subgraph
+        env:
+          SUBGRAPH_NAME: messaging
+          SERVICE_NAME: svc-messaging
+          GRAPHOS_GRAPH_ID: mereb-supergraph
+          GRAPHOS_VARIANT: prd
+        credentials:
+          - type: string
+            id: graphos-rover-api-key
+            env: ROVER_APOLLO_KEY
+        sh: ./scripts/graphos/publish-subgraph.sh
+      - name: Queue GraphOS router promotion
+        when: '!pr'
+        verb: jenkins.build job=RMHY/Mereb/infra/graphos-promote-prd wait=false propagate=false quietPeriod=300
 
   prd_outbox:
     extends: prd
     release: svc-messaging-outbox
     namespace: apps-prd
     smoke: false
+    postDeployStages: []
     generatedValues:
       profile: outboxWorker
       overlay:
