@@ -124,6 +124,7 @@ deploy:
     release: svc-messaging-dev-outbox
     namespace: apps-dev
     smoke: false
+    postDeployStages: []
     generatedValues:
       profile: outboxWorker
       overlay:
@@ -167,6 +168,7 @@ deploy:
     release: svc-messaging-stg-outbox
     namespace: apps-stg
     smoke: false
+    postDeployStages: []
     generatedValues:
       profile: outboxWorker
       overlay:
