@@ -49,7 +49,11 @@ export function createResolvers(
       messaging.helpers.toExecutionContext(ctx)
     );
 
-    return resolved ?? conversation;
+    if (!resolved) {
+      throw new ConversationNotFoundError();
+    }
+
+    return resolved;
   };
 
   return {
@@ -117,16 +121,18 @@ export function createResolvers(
 
           publishMessageReceived(ctx.pubsub, sent);
 
-          const conversation = await messaging.queries.resolveConversationReference.execute({
-            id: sent.conversationId
-          });
+          if (ctx.pubsub) {
+            const conversation = await messaging.queries.resolveConversationReference.execute({
+              id: sent.conversationId
+            });
 
-          for (const participantId of conversation?.participantIds ?? []) {
-            publishConversationUpdated(
-              ctx.pubsub,
-              sent.conversationId,
-              participantId
-            );
+            for (const participantId of conversation?.participantIds ?? []) {
+              publishConversationUpdated(
+                ctx.pubsub,
+                sent.conversationId,
+                participantId
+              );
+            }
           }
 
           return sent;
@@ -163,13 +169,14 @@ export function createResolvers(
           ctx: GraphQLContext
         ) => {
           const executionContext = messaging.helpers.toExecutionContext(ctx);
-          await messaging.queries.listMessages.execute(
-            {
-              conversationId: args.conversationId,
-              limit: 1
-            },
+          const conversation = await messaging.queries.getConversation.execute(
+            { id: args.conversationId },
             executionContext
           );
+
+          if (!conversation) {
+            throw new Error('Conversation not found');
+          }
 
           if (!ctx.pubsub) {
             throw new Error('Subscriptions are unavailable');
@@ -185,13 +192,16 @@ export function createResolvers(
           ctx: GraphQLContext
         ) => {
           const executionContext = messaging.helpers.toExecutionContext(ctx);
-          if (!executionContext.principal?.userId || !ctx.pubsub) {
+          const userId = executionContext.principal?.userId;
+          if (!userId) {
             throw new Error('Authentication required');
           }
 
-          return ctx.pubsub.subscribe(
-            conversationUpdatedTopic(executionContext.principal.userId)
-          );
+          if (!ctx.pubsub) {
+            throw new Error('Subscriptions are unavailable');
+          }
+
+          return ctx.pubsub.subscribe(conversationUpdatedTopic(userId));
         }
       }
     },

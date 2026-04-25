@@ -77,6 +77,23 @@ function createMessagingStub(): MessagingApplicationModule {
   };
 }
 
+function createPubSubRecorder() {
+  const published: Array<{ topic: string; payload: unknown }> = [];
+  const pubsub: MessagingPubSub = {
+    publish(event) {
+      published.push(event);
+    },
+    async subscribe(topic) {
+      const normalizedTopic = Array.isArray(topic) ? topic.join(',') : topic;
+      return (async function* () {
+        yield normalizedTopic;
+      })();
+    }
+  };
+
+  return { pubsub, published };
+}
+
 test('resolver sendMessage preserves empty-body error message', async () => {
   const resolvers = createResolvers(createMessagingStub());
   const sendMessage = (
@@ -93,6 +110,7 @@ test('resolver sendMessage preserves empty-body error message', async () => {
 test('resolver sendMessage delegates trimmed body to use case', async () => {
   let receivedBody = '';
   const messaging = createMessagingStub();
+  const { pubsub, published } = createPubSubRecorder();
   messaging.commands.sendMessage = {
     async execute(input) {
       receivedBody = input.body;
@@ -115,11 +133,26 @@ test('resolver sendMessage delegates trimmed body to use case', async () => {
   const result = (await sendMessage(
     {},
     { body: '  hello  ', conversationId: 'c1' },
-    { userId: 'u1' }
+    { userId: 'u1', pubsub }
   )) as { body: string };
 
   assert.equal(receivedBody, 'hello');
   assert.equal(result.body, 'hello');
+  assert.deepEqual(published, [
+    {
+      topic: messageReceivedTopic('c1'),
+      payload: {
+        messageReceived: {
+          id: 'm1',
+          conversationId: 'c1',
+          senderId: 'u1',
+          senderName: 'You',
+          body: 'hello',
+          sentAt: new Date('2026-01-01T00:00:00.000Z')
+        }
+      }
+    }
+  ]);
 });
 
 test('conversation queries delegate to the application module', async () => {
@@ -251,6 +284,94 @@ test('messaging resolvers delegate conversation/entity queries and map domain er
   ]);
 });
 
+test('resolver sendMessage publishes message and conversation updates when pubsub is available', async () => {
+  const { pubsub, published } = createPubSubRecorder();
+  const messaging = createMessagingStub();
+  messaging.queries.resolveConversationReference = {
+    async execute(input) {
+      assert.deepEqual(input, { id: 'c1' });
+      return {
+        id: 'c1',
+        participantIds: ['u1', 'u2']
+      };
+    }
+  } as MessagingApplicationModule['queries']['resolveConversationReference'];
+
+  const resolvers = createResolvers(messaging);
+  const sendMessage = (
+    resolvers.Mutation as Record<string, (...args: unknown[]) => Promise<unknown>>
+  ).sendMessage;
+
+  await sendMessage({}, { body: 'hello', conversationId: 'c1' }, { userId: 'u1', pubsub });
+
+  assert.deepEqual(published, [
+    {
+      topic: messageReceivedTopic('c1'),
+      payload: {
+        messageReceived: {
+          id: 'm1',
+          conversationId: 'c1',
+          senderId: 'u1',
+          senderName: 'You',
+          body: 'hello',
+          sentAt: new Date('2026-01-01T00:00:00.000Z')
+        }
+      }
+    },
+    {
+      topic: conversationUpdatedTopic('u1'),
+      payload: {
+        conversationUpdated: {
+          id: 'c1'
+        }
+      }
+    },
+    {
+      topic: conversationUpdatedTopic('u2'),
+      payload: {
+        conversationUpdated: {
+          id: 'c1'
+        }
+      }
+    }
+  ]);
+});
+
+test('resolver markConversationRead publishes a conversation update for the viewer', async () => {
+  const { pubsub, published } = createPubSubRecorder();
+  const resolvers = createResolvers(createMessagingStub());
+  const markConversationRead = (
+    resolvers.Mutation as Record<string, (...args: unknown[]) => Promise<unknown>>
+  ).markConversationRead;
+
+  await markConversationRead({}, { conversationId: 'c1' }, { userId: 'u1', pubsub });
+
+  assert.deepEqual(published, [
+    {
+      topic: conversationUpdatedTopic('u1'),
+      payload: {
+        conversationUpdated: {
+          id: 'c1'
+        }
+      }
+    }
+  ]);
+});
+
+test('conversation field resolvers throw when a partial conversation cannot be hydrated', async () => {
+  const messaging = createMessagingStub();
+  const resolvers = createResolvers(messaging);
+  const conversation = resolvers.Conversation as Record<
+    string,
+    (...args: unknown[]) => Promise<unknown>
+  >;
+
+  await assert.rejects(
+    () => conversation.title({ id: 'c404' }, {}, { userId: 'u1' }),
+    (error) => error instanceof ConversationNotFoundError
+  );
+});
+
 test('messageReceived subscription verifies access and subscribes to the conversation topic', async () => {
   let requestedConversationId = '';
   let subscribedTopic = '';
@@ -262,15 +383,12 @@ test('messageReceived subscription verifies access and subscribes to the convers
     }
   };
   const messaging = createMessagingStub();
-  messaging.queries.listMessages = {
+  messaging.queries.getConversation = {
     async execute(input) {
-      requestedConversationId = input.conversationId;
-      return {
-        edges: [],
-        pageInfo: { endCursor: null, hasNextPage: false }
-      };
+      requestedConversationId = input.id;
+      return { id: input.id };
     }
-  } as MessagingApplicationModule['queries']['listMessages'];
+  } as MessagingApplicationModule['queries']['getConversation'];
 
   const resolvers = createResolvers(messaging);
   const subscription = resolvers.Subscription as Record<
@@ -307,6 +425,10 @@ test('conversationUpdated subscription requires authentication and uses the view
   await assert.rejects(
     () => subscription.conversationUpdated.subscribe({}, {}, { pubsub }),
     (error) => error instanceof Error && error.message === 'Authentication required'
+  );
+  await assert.rejects(
+    () => subscription.conversationUpdated.subscribe({}, {}, { userId: 'u1' }),
+    (error) => error instanceof Error && error.message === 'Subscriptions are unavailable'
   );
 
   const result = await subscription.conversationUpdated.subscribe(

@@ -161,11 +161,19 @@ export async function buildServer(): Promise<FastifyInstance> {
           throw new Error('Authentication required');
         }
 
-        const payload = await verifyJwtWithIssuerFallback(token, { issuer, audience });
-        return {
-          userId: payload.sub,
-          pubsub: app.graphql.pubsub
-        };
+        try {
+          const payload = await verifyJwtWithIssuerFallback(token, { issuer, audience });
+          return {
+            userId: payload.sub,
+            pubsub: app.graphql.pubsub
+          };
+        } catch (error) {
+          app.log.warn(
+            { err: error },
+            'Subscription authentication failed during token verification'
+          );
+          throw new Error('Authentication required');
+        }
       }
     }
   };
