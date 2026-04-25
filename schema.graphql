@@ -59,3 +59,8 @@ type Mutation {
   sendMessage(conversationId: ID, toUserId: ID, body: String!): Message!
   markConversationRead(conversationId: ID!): Conversation!
 }
+
+type Subscription {
+  messageReceived(conversationId: ID!): Message!
+  conversationUpdated: Conversation!
+}
