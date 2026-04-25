@@ -3,6 +3,11 @@ import assert from 'node:assert/strict';
 import { createResolvers } from '../src/adapters/inbound/graphql/resolvers.js';
 import type { MessagingApplicationModule } from '../src/application/messaging/use-cases.js';
 import { ConversationNotFoundError, MissingRecipientError } from '../src/domain/messaging/errors.js';
+import type { MessagingPubSub } from '../src/context.js';
+import {
+  conversationUpdatedTopic,
+  messageReceivedTopic
+} from '../src/adapters/inbound/graphql/subscriptions.js';
 
 function createMessagingStub(): MessagingApplicationModule {
   return {
@@ -244,4 +249,72 @@ test('messaging resolvers delegate conversation/entity queries and map domain er
     },
     { kind: 'resolveConversationReference', payload: { id: 'c1' } }
   ]);
+});
+
+test('messageReceived subscription verifies access and subscribes to the conversation topic', async () => {
+  let requestedConversationId = '';
+  let subscribedTopic = '';
+  const pubsub: MessagingPubSub = {
+    publish() {},
+    async subscribe(topic) {
+      subscribedTopic = Array.isArray(topic) ? topic.join(',') : topic;
+      return (async function* () {})();
+    }
+  };
+  const messaging = createMessagingStub();
+  messaging.queries.listMessages = {
+    async execute(input) {
+      requestedConversationId = input.conversationId;
+      return {
+        edges: [],
+        pageInfo: { endCursor: null, hasNextPage: false }
+      };
+    }
+  } as MessagingApplicationModule['queries']['listMessages'];
+
+  const resolvers = createResolvers(messaging);
+  const subscription = resolvers.Subscription as Record<
+    string,
+    { subscribe: (...args: unknown[]) => Promise<unknown> }
+  >;
+
+  const result = await subscription.messageReceived.subscribe(
+    {},
+    { conversationId: 'c42' },
+    { userId: 'u1', pubsub }
+  );
+
+  assert.equal(typeof (result as AsyncIterable<unknown>)[Symbol.asyncIterator], 'function');
+  assert.equal(requestedConversationId, 'c42');
+  assert.equal(subscribedTopic, messageReceivedTopic('c42'));
+});
+
+test('conversationUpdated subscription requires authentication and uses the viewer topic', async () => {
+  let subscribedTopic = '';
+  const pubsub: MessagingPubSub = {
+    publish() {},
+    async subscribe(topic) {
+      subscribedTopic = Array.isArray(topic) ? topic.join(',') : topic;
+      return (async function* () {})();
+    }
+  };
+  const resolvers = createResolvers(createMessagingStub());
+  const subscription = resolvers.Subscription as Record<
+    string,
+    { subscribe: (...args: unknown[]) => Promise<unknown> }
+  >;
+
+  await assert.rejects(
+    () => subscription.conversationUpdated.subscribe({}, {}, { pubsub }),
+    (error) => error instanceof Error && error.message === 'Authentication required'
+  );
+
+  const result = await subscription.conversationUpdated.subscribe(
+    {},
+    {},
+    { userId: 'u1', pubsub }
+  );
+
+  assert.equal(typeof (result as AsyncIterable<unknown>)[Symbol.asyncIterator], 'function');
+  assert.equal(subscribedTopic, conversationUpdatedTopic('u1'));
 });

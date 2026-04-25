@@ -151,8 +151,23 @@ export async function buildServer(): Promise<FastifyInstance> {
     graphiql: process.env.NODE_ENV !== 'production',
     federationMetadata: true,
     context: (request): GraphQLContext => ({
-      userId: readRequestUserId(request)
-    })
+      userId: readRequestUserId(request),
+      pubsub: app.graphql.pubsub
+    }),
+    subscription: {
+      context: async (_socket, request): Promise<GraphQLContext> => {
+        const token = parseAuthHeader(request.headers);
+        if (!token) {
+          throw new Error('Authentication required');
+        }
+
+        const payload = await verifyJwtWithIssuerFallback(token, { issuer, audience });
+        return {
+          userId: payload.sub,
+          pubsub: app.graphql.pubsub
+        };
+      }
+    }
   };
 
   await registerPlugin(
