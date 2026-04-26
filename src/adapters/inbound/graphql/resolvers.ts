@@ -1,4 +1,5 @@
 import type { IResolvers } from '@graphql-tools/utils';
+import { mapInstanceofToGraphQLError } from '@mereb/shared-packages';
 import type { GraphQLContext } from '../../../context.js';
 import {
   AuthenticationRequiredError,
@@ -16,16 +17,12 @@ import {
 } from './subscriptions.js';
 
 function toGraphQLError(error: unknown): never {
-  if (
-    error instanceof AuthenticationRequiredError ||
-    error instanceof ConversationNotFoundError ||
-    error instanceof MessageBodyEmptyError ||
-    error instanceof MissingRecipientError
-  ) {
-    throw new Error(error.message);
-  }
-
-  throw error;
+  mapInstanceofToGraphQLError(error, [
+    [AuthenticationRequiredError, (e) => e.message],
+    [ConversationNotFoundError, (e) => e.message],
+    [MessageBodyEmptyError, (e) => e.message],
+    [MissingRecipientError, (e) => e.message]
+  ]);
 }
 
 export function createResolvers(
