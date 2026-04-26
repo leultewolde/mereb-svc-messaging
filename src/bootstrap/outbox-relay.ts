@@ -41,6 +41,14 @@ function buildPublisher(
   envelopePublisher: IntegrationEventPublisher,
   dlqEnabled: boolean
 ): OutboxRelayPublisher<PendingMessagingOutboxEvent> {
+  let dlqPublisher: IntegrationEventPublisher | null = null;
+  function getDlqPublisher(): IntegrationEventPublisher | null {
+    if (dlqPublisher) return dlqPublisher;
+    const config = buildKafkaConfigFromEnv({ clientId: 'svc-messaging-outbox-relay-dlq' });
+    if (!config) return null;
+    dlqPublisher = createKafkaIntegrationEventPublisher(config);
+    return dlqPublisher;
+  }
   return {
     async publish(event) {
       await envelopePublisher.publish(
@@ -53,11 +61,14 @@ function buildPublisher(
       if (!dlqEnabled) {
         return { deadLetterTopic: null };
       }
-      const config = buildKafkaConfigFromEnv({ clientId: 'svc-messaging-outbox-relay-dlq' });
-      if (!config) {
-        throw new Error('Kafka config missing for messaging DLQ publish');
+      const publisher = getDlqPublisher();
+      if (!publisher) {
+        logger.warn(
+          { outboxId: event.id, topic: event.topic, eventType: event.eventType },
+          'Kafka config missing for messaging DLQ publish; skipping DLQ publish'
+        );
+        return { deadLetterTopic: null };
       }
-      const dlqPublisher = createKafkaIntegrationEventPublisher(config);
       const dlqTopic = resolveDlqTopic(event.topic);
       const dlqEnvelope = createIntegrationEventEnvelope({
         eventType: `${event.eventType}.dead_lettered`,
@@ -73,7 +84,7 @@ function buildPublisher(
           envelope: event.envelope
         }
       });
-      await dlqPublisher.publish(dlqTopic, dlqEnvelope, {
+      await publisher.publish(dlqTopic, dlqEnvelope, {
         key: event.eventKey ?? event.id
       });
       return { deadLetterTopic: dlqTopic };
@@ -99,7 +110,9 @@ export async function flushMessagingOutboxOnce(
     (() => {
       const kafkaConfig = buildKafkaConfigFromEnv({ clientId: 'svc-messaging-outbox-relay' });
       if (!kafkaConfig) {
-        logger.warn('Messaging outbox relay enabled but Kafka config is missing; skipping flush');
+        if (config.enabled) {
+          logger.warn('Messaging outbox relay enabled but Kafka config is missing; skipping flush');
+        }
         return null;
       }
       return createKafkaIntegrationEventPublisher(kafkaConfig);
